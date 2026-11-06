@@ -6,7 +6,7 @@ SYNC_DIR="${SYNC_DIR:-ml}"
 read -ra TARGETS <<< "${TARGETS:-web-dev}" # space-separated target branches
 BRIDGE_FROM="${BRIDGE_FROM:-}"             # e.g. mob-dev   (optional)
 BRIDGE_TO="${BRIDGE_TO:-}"                 # e.g. mob-dev2  (optional)
-BRIDGE_DIR="${BRIDGE_DIR:-devbridge}"
+BRIDGE_DIR="${BRIDGE_DIR:-DevBridge}"      # 👈 Fixed case to match exact folder name
 MSG_TAG="chore(sync)"
 
 git config user.name  "DevBridge Main Sync Bot"
@@ -29,7 +29,7 @@ merge_gitignore() {
 # Mirror one directory exactly (adds, updates AND deletions) from a ref.
 mirror_dir() {
   local ref="$1" dir="$2"
-  git rm -r -q --ignore-unmatch -- "$dir"
+  git rm -r -q --ignore-unmatch -- "$dir" 2>/dev/null || true
   rm -rf -- "$dir"
   if git cat-file -e "$ref:$dir" 2>/dev/null; then
     git checkout "$ref" -- "$dir"
@@ -50,7 +50,10 @@ commit_push() {
 # ---- 1. ml/ + .gitignore -> every target branch -----------------------
 for T in "${TARGETS[@]}"; do
   echo "---- $T"
-  branch_exists "$T" || { echo "Skipping: $T not on origin"; continue; }
+  if ! branch_exists "$T"; then
+    echo "Skipping: $T not on origin (create/push branch to origin first)"
+    continue
+  fi
 
   git checkout -q -B "$T" "origin/$T"
   mirror_dir "$SRC_REF" "$SYNC_DIR"
@@ -59,13 +62,13 @@ for T in "${TARGETS[@]}"; do
   commit_push "$T" "$MSG_TAG: update $SYNC_DIR/ and merge .gitignore from main"
 done
 
-# ---- 2. devbridge/ : mob-dev -> mob-dev2 (only if mob-dev2 has no own changes)
+# ---- 2. DevBridge/ : mob-dev -> mob-dev2 (only if mob-dev2 has no own changes)
 if [[ -n "$BRIDGE_FROM" && -n "$BRIDGE_TO" ]] \
    && branch_exists "$BRIDGE_FROM" && branch_exists "$BRIDGE_TO"; then
   git fetch origin --prune
-  # Commits on BRIDGE_TO (not in BRIDGE_FROM) touching devbridge/, ignoring our own sync commits
+  # Commits on BRIDGE_TO (not in BRIDGE_FROM) touching DevBridge/, ignoring our own sync commits
   OWN=$(git log --oneline "origin/$BRIDGE_FROM..origin/$BRIDGE_TO" \
-          --grep="$MSG_TAG" --invert-grep -- "$BRIDGE_DIR")
+          --grep="$MSG_TAG" --invert-grep -- "$BRIDGE_DIR" || true)
   if [[ -z "$OWN" ]]; then
     echo "---- $BRIDGE_TO has no own $BRIDGE_DIR changes; mirroring from $BRIDGE_FROM"
     git checkout -q -B "$BRIDGE_TO" "origin/$BRIDGE_TO"
@@ -73,7 +76,7 @@ if [[ -n "$BRIDGE_FROM" && -n "$BRIDGE_TO" ]] \
     git add -A -- "$BRIDGE_DIR"
     commit_push "$BRIDGE_TO" "$MSG_TAG: mirror $BRIDGE_DIR/ from $BRIDGE_FROM"
   else
-    echo "Skipping devbridge: $BRIDGE_TO has its own changes:"; echo "$OWN"
+    echo "Skipping DevBridge: $BRIDGE_TO has its own changes:"; echo "$OWN"
   fi
 fi
 
