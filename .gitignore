@@ -1,0 +1,10 @@
+*.env
+*.log
+.DS_Store
+.vscode/
+Thumbs.db
+__pycache__/
+dist/
+node_modules/
+venv/
+
