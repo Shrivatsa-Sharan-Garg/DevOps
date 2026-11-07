@@ -1,98 +1,78 @@
 # DevBridge
 
-DevBridge is a crowdsourced, unified problem-solving platform connecting real-world user problems with developers. It features automated Software Requirement Specification (SRS) translation, tech stack recommendations, semantic duplicate detection, and valuation tracking powered by locally run Hugging Face NLP models.
+DevBridge is a crowdsourced platform connecting people who have real problems with developers who can build solutions. This branch holds the shared backend and AI core used by the web and mobile clients.
 
----
+## Features
 
-## 🏗️ Repository Architecture & Multi-Branch Workflow
+- Problem browsing, submission, upvotes, comments and solutions
+- Semantic duplicate review: up to three suggested matches, with the user making the final decision
+- Community reports that keep each same-problem submission as its own record
+- On-demand SRS drafts that can be edited and versioned
+- Dashboard metrics from stored records
 
-To keep our college project clean, avoid backend conflicts, and allow separate sub-teams to work simultaneously without merge hell, we use an isolated multi-branch architecture:
+AI inference runs on hosted free tiers only: Cloudflare Workers AI for embeddings and OpenRouter for SRS drafts. Data is stored in JSON files for development, so no database is needed. Without API keys, duplicate review falls back to a labelled keyword check.
 
-```text
-DevBridge/
-├── main         (Shared Core: Python FastAPI Backend + Hugging Face /ml/ pipeline)
-├── web-dev      (Web Team: Frontend clients + shared /ml/)
-└── mob-dev      (Mobile Team: Native Android Java clients + shared /ml/)
+## Branches
 
-```
+| Branch | Owns |
+|---|---|
+| `main` | Shared `ml/` backend and AI core, plus the sync workflow |
+| `web-dev` | React frontend and the MERN coursework skeleton |
+| `mob-dev` | Native Android application |
 
-### **How the Shared AI Core Syncs**
+All shared backend and AI changes are made on `main`. On every push, `.github/workflows/sync-branches.yml` copies `ml/` to `web-dev` and `mob-dev`, leaving their other files alone. The sync stops if a branch has its own changes in `ml/`.
 
-The shared `ml/` folder on `main` houses our core NLP models and database microservices.
-
-- **Automated Sync:** An automated GitHub Action workflow (`.github/workflows/sync-branches.yml`) running `scripts/sync.sh` synchronizes updates from the `ml/` folder on `main` into the feature branches.
-- **Zero Overwrites:** This sync process **only** updates the `ml/` directory, ensuring frontend developers can build their web or mobile UIs without risking backend merge conflicts.
-
----
-
-## 📂 Project Directory Structure
+## Project structure
 
 ```text
-DevBridge/
-├── .github/
-│   └── workflows/
-│       └── sync-branches.yml   # Automated branch sync action
-├── .gitignore
-├── LICENSE
-├── ml/
-│   ├── .env                    # Environment variables (MongoDB URL, etc.)
-│   ├── backend/                # Lightweight FastAPI REST API (Port 8000)
-│   │   ├── config/             # Database connection handlers
-│   │   ├── controllers/        # Express-style business logic handlers
-│   │   ├── models/             # Pydantic validation schemas
-│   │   ├── routes/             # API route endpoints
-│   │   ├── services/           # AI service client (HTTP communication)
-│   │   ├── main.py             # FastAPI backend entry point
-│   │   └── requirements.txt    # Lightweight API dependencies (FastAPI, Motor, Pydantic)
-│   ├── nlp/                    # Standalone AI/ML Worker (Port 8001)
-│   │   ├── model.py            # Local Hugging Face inference pipeline
-│   │   ├── main.py             # FastAPI NLP microservice entry point
-│   │   └── requirements.txt    # Heavy ML dependencies (PyTorch, Transformers, Sentence-Transformers)
-│   └── install.ps1             # Automated PowerShell environment setup script
-├── README.md
-└── scripts/
-    └── sync.sh                 # Branch synchronization script
-
+ml/
+├── backend/   FastAPI application and tests
+├── nlp/       Provider clients, matching, features and SRS logic
+├── data/      Synthetic dataset and local runtime data
+└── install.ps1
+scripts/sync.sh
 ```
 
----
+## Getting started
 
-## ⚡ Core Features
-
-1. **Unified Problem Submissions:** A streamlined form for users to raise real-world issues, categorize them, and optionally attach market valuation budgets.
-2. **Semantic Duplicate Detection:** Uses `sentence-transformers/all-MiniLM-L6-v2` locally to compute cosine similarity between problem descriptions, automatically flagging duplicates and incrementing upvotes on existing issues.
-3. **Automated SRS & Tech Stack Translation:** Uses compact instruction models (`Qwen/Qwen2.5-3B-Instruct`) to convert raw user complaints into structured Markdown SRS documents containing Objectives, Functional Requirements, Scope, and Recommended Tech Stacks.
-4. **Decoupled Local Microservices:** Separates heavy AI model inference (running offline on port 8001) from the lightweight database-driven backend API (running on port 8000) to ensure high performance and zero external API costs.
-
----
-
-## 🚀 Getting Started Locally
-
-### **1. Clone and Setup Environment**
-
-Open PowerShell inside your project folder and run your install script to configure your virtual environments and dependencies:
+From the `ml` folder in PowerShell:
 
 ```powershell
-cd ml
 .\install.ps1
+.\venv\Scripts\Activate.ps1
+python -m uvicorn backend.main:app --reload --port 8000
 ```
 
-### **2. Run the Local Services (Two Terminals)**
+The API documentation is at <http://localhost:8000/docs>. Demo data is created on the first start.
 
-- **Terminal 1: Start the Standalone NLP Worker (Port 8001)**
+## Environment variables
 
-```powershell
-cd ml/nlp
-python -m uvicorn main:app --reload --port 8001
-```
+Copy `ml/.env.example` to `ml/.env`. These enable the AI features, and the other settings have working defaults:
 
-- **Terminal 2: Start the Lightweight Backend API (Port 8000)**
+| Variable | Purpose |
+|---|---|
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account, on the Workers Free plan |
+| `CLOUDFLARE_API_TOKEN` | Token with Workers AI read access |
+| `OPENROUTER_API_KEY` | OpenRouter key |
 
-```powershell
-cd ml/backend
-uvicorn main:app --reload --port 8000
-```
+Only `:free` OpenRouter models are accepted. `MATCH_MIN_SIMILARITY` has not been calibrated yet, so run `python -m backend.scripts.calibrate_threshold` once you have a Cloudflare key.
 
-### **3. Test the API**
+## Commands
 
-Open your browser and navigate to **`http://localhost:8000/docs`** to test your live interactive Swagger documentation and post problem statements.
+Run these from `ml/` with the virtual environment active.
+
+| Task | Command |
+|---|---|
+| Run tests | `python -m pytest` |
+| Test real providers | `python -m pytest -m cloud` |
+| Add missing demo data | `python -m backend.scripts.seed` |
+| Restore demo data | `python -m backend.scripts.seed --reset --yes` |
+| Export training rows | `python -m backend.scripts.export_training_data` |
+
+## Limitations
+
+This is a local demonstration build. Sign-in uses demo profiles with no real authentication, JSON storage suits a single local server, and demo records are synthetic. Problem text is sent to external AI providers only with the user's consent.
+
+## Licence
+
+See [LICENSE](LICENSE).
