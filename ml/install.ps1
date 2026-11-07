@@ -39,15 +39,9 @@ if ($packages.Count -gt 0) {
         exit 1
     }
 
-    # Sync both NLP and Backend requirements if they exist
-    if (Test-Path "nlp\requirements.txt") {
-        Write-Host "Syncing NLP requirements..." -ForegroundColor Gray
-        pip install -r nlp\requirements.txt --quiet
-    }
-    if (Test-Path "backend\requirements.txt") {
-        Write-Host "Syncing Backend requirements..." -ForegroundColor Gray
-        pip install -r backend\requirements.txt --quiet
-    }
+    # One lightweight environment. AI runs at hosted providers, so no model packages are installed.
+    Write-Host "Syncing backend requirements..." -ForegroundColor Gray
+    pip install -r backend\requirements-dev.txt --quiet
 }
 
 Write-Host "Environment Synchronized and venv activated!" -ForegroundColor Green
