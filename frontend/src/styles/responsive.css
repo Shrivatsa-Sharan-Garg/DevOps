@@ -1,0 +1,216 @@
+@media (max-width:1080px){
+    .metric-grid-six{
+        grid-template-columns:repeat(3,minmax(0,1fr));
+    }
+
+    .workflow-lane{
+        grid-template-columns:repeat(4,minmax(0,1fr));
+    }
+
+    .workflow-lane li:nth-child(4n)::after{
+        display:none;
+    }
+
+    .steps{
+        grid-template-columns:repeat(2,1fr);
+    }
+
+    .dashboard-grid{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+
+    .detail-layout{
+        grid-template-columns:minmax(0,1fr);
+    }
+
+    .detail-aside{
+        position:static;
+        grid-row:1;
+        grid-template-columns:1fr 1fr;
+    }
+}
+
+@media (max-width:920px){
+    .nav-links,
+    .nav-submit,
+    .nav-sign-in{
+        display:none;
+    }
+
+    .nav-toggle{
+        display:inline-grid;
+    }
+
+    .mobile-nav{
+        display:block;
+    }
+
+    .hero{
+        grid-template-columns:minmax(0,1fr);
+        padding-top:40px;
+    }
+
+    .scene{
+        height:400px;
+    }
+
+    .toolbar{
+        grid-template-columns:1fr 1fr 1fr;
+    }
+
+    .toolbar .search-control{
+        grid-column:1 / -1;
+    }
+
+    .toolbar-compact{
+        grid-template-columns:minmax(0,1fr);
+    }
+
+    .workspace{
+        grid-template-columns:minmax(0,1fr);
+    }
+
+    .workspace-nav{
+        position:static;
+    }
+
+    .workspace-nav nav{
+        display:flex;
+        overflow-x:auto;
+    }
+
+    .workspace-link{
+        flex:none;
+        width:auto;
+    }
+
+    .solutions-band,
+    .auth-page{
+        grid-template-columns:minmax(0,1fr);
+    }
+
+    .auth-page{
+        gap:24px;
+    }
+}
+
+@media (max-width:640px){
+    .page-shell{
+        padding:26px 16px 56px;
+    }
+
+    .page-title,
+    .section-heading{
+        flex-direction:column;
+        align-items:flex-start;
+    }
+
+    .section{
+        padding:32px 16px;
+    }
+
+    .hero{
+        padding:30px 16px 24px;
+    }
+
+    .proof-strip,
+    .solutions-band{
+        width:calc(100% - 32px);
+    }
+
+    .proof-values{
+        grid-template-columns:1fr 1fr;
+    }
+
+    .solutions-band{
+        padding:22px;
+    }
+
+    .scene{
+        height:500px;
+    }
+
+    .scene-card{
+        width:84%;
+    }
+
+    .scene-middle{
+        top:136px;
+    }
+
+    .steps,
+    .form-row,
+    .role-picker,
+    .dashboard-grid,
+    .detail-aside{
+        grid-template-columns:minmax(0,1fr);
+    }
+
+    .span-2{
+        grid-column:auto;
+    }
+
+    .card-grid{
+        grid-template-columns:minmax(0,1fr);
+    }
+
+    .metric-grid,
+    .metric-grid-six{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+
+    .workflow-lane{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+
+    .workflow-lane li::after{
+        display:none;
+    }
+
+    .toolbar{
+        grid-template-columns:1fr 1fr;
+    }
+
+    .toolbar select:last-child{
+        grid-column:1 / -1;
+    }
+
+    .brief{
+        grid-template-columns:minmax(0,1fr);
+        gap:3px;
+    }
+
+    .brief dd{
+        margin-bottom:10px;
+    }
+
+    .detail-article,
+    .form-section{
+        padding:18px;
+    }
+
+    .stepper li{
+        flex-direction:column;
+        gap:3px;
+        padding:7px 4px;
+        font-size:12px;
+        text-align:center;
+    }
+
+    .candidate-actions .btn,
+    .modal-actions .btn{
+        flex:1 1 100%;
+    }
+
+    .consent-panel{
+        flex-direction:column;
+    }
+
+    .account-name{
+        display:none;
+    }
+
+    .byline-reports{
+        margin-left:0;
+    }
+}

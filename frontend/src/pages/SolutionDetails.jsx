@@ -1,6 +1,80 @@
-import { formatDate } from "../utils/helpers";
-function SolutionDetails({ solution, onNavigate }) {
-    if (!solution) return <div className="container-wide empty-state"><h2>Solution not found</h2><button className="btn btn-primary" onClick={() => onNavigate("solutions")}>Browse solutions</button></div>;
-    return <div className="container-wide solution-article-layout"><button className="back-link" onClick={() => onNavigate("solutions")}>← All solutions</button><article className="solution-article"><div className="article-kicker"><span className="solution-state">COMMUNITY BUILD</span><span className="category-label">{solution.techStack?.join(" · ")}</span></div><h1>{solution.title}</h1><p className="article-deck">A community-made response to a real request, shared openly for feedback and iteration.</p><div className="article-byline"><span className="avatar">{solution.author.name.charAt(0)}</span><span><strong>{solution.author.name}</strong><small>Published {formatDate(solution.createdAt)}</small></span></div><div className="article-body"><h2>What it does</h2><p>{solution.description}</p><h2>Features</h2><ul><li>Designed around the original community request.</li><li>Built to invite feedback and follow-on improvements.</li><li>Uses {solution.techStack?.join(", ") || "a community-selected technology stack"}.</li></ul><h2>Implementation notes</h2><p>This is an early community build. Setup details, screenshots, limitations, and a production deployment can be added as the project develops.</p><h2>Limitations</h2><p>Availability and feature completeness may vary. Contact the developer through the discussion attached to the related request before relying on this project.</p></div><div className="solution-linked-problem"><div className="eyebrow">THE REQUEST BEHIND THIS BUILD</div><strong>{solution.problemTitle}</strong><button className="text-link" onClick={() => onNavigate("details", solution.problemId)}>Read the problem and join the discussion →</button></div><div className="developer-cta"><span>Have feedback or a feature request?</span><button className="text-link" onClick={() => onNavigate("details", solution.problemId)}>Join the problem discussion →</button></div></article></div>;
+import {Link, useParams} from "react-router";
+import {motion} from "motion/react";
+import {ArrowLeft, ArrowRight, ExternalLink, SearchX} from "lucide-react";
+import {api} from "../api";
+import {useApi} from "../hooks/useApi";
+import {Avatar, SyntheticBadge} from "../components/ui/Badges";
+import Button from "../components/ui/Button";
+import {EmptyState, ErrorState, PageSkeleton} from "../components/ui/States";
+import {formatDate} from "../utils/format";
+
+function SolutionDetails(){
+    const {id}=useParams();
+    const {data:solution, error, loading, reload}=useApi((signal) => api.getSolution(id, signal), [id]);
+
+    if(loading && !solution){
+        return <div className="page-shell narrow"><PageSkeleton/></div>;
+    }
+
+    if(error?.status === 404){
+        return (
+            <div className="page-shell">
+                <EmptyState icon={SearchX} title="Solution not found" action={<Button to="/solutions">Browse solutions</Button>}/>
+            </div>
+        );
+    }
+
+    if(error){
+        return <div className="page-shell"><ErrorState error={error} onRetry={reload}/></div>;
+    }
+
+    return (
+        <div className="page-shell narrow">
+            <Link className="back-link" to="/solutions">
+                <ArrowLeft size={16} aria-hidden="true"/>
+                All solutions
+            </Link>
+
+            <motion.article className="surface detail-article" initial={{opacity:0,y:18}} animate={{opacity:1,y:0}}>
+                <div className="tag-row">
+                    {solution.tech_stack.map((tech) => <span className="tag tag-static" key={tech}>{tech}</span>)}
+                    {solution.source === "synthetic" && <SyntheticBadge/>}
+                </div>
+
+                <h1>{solution.title}</h1>
+
+                <div className="byline">
+                    <Avatar name={solution.author.name}/>
+                    <span>
+                        <strong>{solution.author.name}</strong>
+                        <small>Published {formatDate(solution.created_at)}</small>
+                    </span>
+                </div>
+
+                <div className="prose">
+                    <h2>What it does</h2>
+                    <p>{solution.description}</p>
+                </div>
+
+                {solution.repo_url && (
+                    <a className="btn btn-secondary repo-link" href={solution.repo_url} target="_blank" rel="noreferrer">
+                        <ExternalLink size={16} aria-hidden="true"/>
+                        View repository
+                    </a>
+                )}
+
+                <div className="linked-problem">
+                    <span className="eyebrow">The request behind this build</span>
+                    <strong>{solution.problem_title}</strong>
+
+                    <Link className="text-link" to={`/problems/${solution.problem_id}`}>
+                        Read the problem and join the discussion
+                        <ArrowRight size={15} aria-hidden="true"/>
+                    </Link>
+                </div>
+            </motion.article>
+        </div>
+    );
 }
+
 export default SolutionDetails;

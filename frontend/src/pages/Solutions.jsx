@@ -1,7 +1,112 @@
-import { useMemo, useState } from "react";
-function Solutions({ solutions, onNavigate }) {
-    const [query, setQuery] = useState(""); const [sort, setSort] = useState("newest");
-    const results = useMemo(() => solutions.filter((solution) => `${solution.title} ${solution.description} ${solution.problemTitle} ${(solution.techStack || []).join(" ")}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => sort === "az" ? a.title.localeCompare(b.title) : new Date(b.createdAt) - new Date(a.createdAt)), [solutions, query, sort]);
-    return <div className="container-wide page-shell"><div className="page-title-row"><div><div className="eyebrow">BUILT IN RESPONSE TO REAL NEED</div><h1>Community solutions</h1><p>Projects and approaches connected to problems people actually face.</p></div></div><div className="explore-toolbar"><label className="search-control"><span>⌕</span><input aria-label="Search solutions" placeholder="Search solutions, problems, technologies" value={query} onChange={(e) => setQuery(e.target.value)} /></label><label className="select-control"><span className="sr-only">Sort solutions</span><select value={sort} onChange={(e) => setSort(e.target.value)}><option value="newest">Recently published</option><option value="az">Title A–Z</option></select></label></div><div className="results-caption"><span><strong>{results.length}</strong> published solutions</span><span>Demo projects from the community</span></div>{results.length ? <div className="solution-grid">{results.map((solution) => <article className="solution-discovery-card" key={solution._id}><div className="solution-card-top"><span className="solution-glyph">{solution.title.charAt(0)}</span><span className="solution-state">PUBLISHED</span></div><h2>{solution.title}</h2><p>{solution.description}</p><div className="related-problem-ref">Built for <strong>{solution.problemTitle}</strong></div><div className="tags">{(solution.techStack || []).map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div><div className="solution-discovery-foot"><span className="avatar">{solution.author.name.charAt(0)}</span><span>{solution.author.name}</span><button className="text-link" onClick={() => onNavigate("solution-details", solution._id)}>View project →</button></div></article>)}</div> : <div className="empty-state"><h2>No solutions match yet</h2><p>Try a different search or explore the requests still looking for a developer.</p><button className="btn btn-outline" onClick={() => onNavigate("problems")}>Explore open problems</button></div>}</div>;
+import {useMemo, useState} from "react";
+import {Link} from "react-router";
+import {ArrowRight, Search, SearchX} from "lucide-react";
+import {api} from "../api";
+import {useApi} from "../hooks/useApi";
+import {Avatar, SyntheticBadge} from "../components/ui/Badges";
+import Button from "../components/ui/Button";
+import {Reveal, Stagger, StaggerItem} from "../components/ui/Reveal";
+import {CardSkeletons, EmptyState, ErrorState} from "../components/ui/States";
+import TiltCard from "../components/ui/TiltCard";
+import {plural} from "../utils/format";
+
+function matchesQuery(solution, query){
+    const text=`${solution.title} ${solution.description} ${solution.problem_title} ${solution.tech_stack.join(" ")}`;
+
+    return text.toLowerCase().includes(query.toLowerCase());
 }
+
+function SolutionCard({solution}){
+    return (
+        <TiltCard className="surface solution-card">
+            <div className="problem-card-top">
+                <span className="glyph">{solution.title.charAt(0)}</span>
+                {solution.source === "synthetic" && <SyntheticBadge/>}
+            </div>
+
+            <h2>{solution.title}</h2>
+            <p>{solution.description}</p>
+            <p className="solution-for">Built for <strong>{solution.problem_title}</strong></p>
+
+            <div className="tag-row">
+                {solution.tech_stack.map((tech) => <span className="tag tag-static" key={tech}>{tech}</span>)}
+            </div>
+
+            <div className="solution-foot">
+                <Avatar name={solution.author.name} size="small"/>
+                <span>{solution.author.name}</span>
+                <Link className="text-link" to={`/solutions/${solution.id}`}>View project <ArrowRight size={14} aria-hidden="true"/></Link>
+            </div>
+        </TiltCard>
+    );
+}
+
+function Solutions(){
+    const [query, setQuery]=useState("");
+    const [sort, setSort]=useState("newest");
+    const {data, error, loading, reload}=useApi((signal) => api.listSolutions(signal));
+
+    const results=useMemo(() => {
+        const matches=(data || []).filter((solution) => matchesQuery(solution, query));
+
+        if(sort === "az"){
+            return [...matches].sort((left, right) => left.title.localeCompare(right.title));
+        }
+
+        return matches;
+    }, [data, query, sort]);
+
+    return (
+        <div className="page-shell">
+            <Reveal className="page-title">
+                <div>
+                    <span className="eyebrow">Built in response to real need</span>
+                    <h1>Community solutions</h1>
+                    <p>Projects and approaches connected to problems people actually face.</p>
+                </div>
+            </Reveal>
+
+            <div className="toolbar toolbar-compact surface">
+                <label className="search-control">
+                    <Search size={17} aria-hidden="true"/>
+                    <input
+                        aria-label="Search solutions"
+                        value={query}
+                        placeholder="Search solutions, problems or technologies"
+                        onChange={(event) => setQuery(event.target.value)}
+                    />
+                </label>
+
+                <select aria-label="Sort solutions" value={sort} onChange={(event) => setSort(event.target.value)}>
+                    <option value="newest">Recently published</option>
+                    <option value="az">Title A–Z</option>
+                </select>
+            </div>
+
+            <div className="results-line"><span>{data ? plural(results.length, "published solution") : "Loading…"}</span></div>
+
+            {loading && !data && <CardSkeletons/>}
+            {error && <ErrorState error={error} onRetry={reload}/>}
+
+            {data && results.length === 0 && (
+                <EmptyState
+                    icon={SearchX}
+                    title="No solutions match yet"
+                    action={<Button variant="secondary" to="/problems">Explore open problems</Button>}
+                >
+                    Try a different search, or explore the problems still looking for a developer.
+                </EmptyState>
+            )}
+
+            {results.length > 0 && (
+                <Stagger className="card-grid solution-grid">
+                    {results.map((solution) => (
+                        <StaggerItem key={solution.id}><SolutionCard solution={solution}/></StaggerItem>
+                    ))}
+                </Stagger>
+            )}
+        </div>
+    );
+}
+
 export default Solutions;
