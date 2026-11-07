@@ -1,82 +1,124 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SRC_REF="${SRC_REF:-origin/main}"          # where ml/ + .gitignore come from
+SRC_REF="${SRC_REF:-origin/main}"
 SYNC_DIR="${SYNC_DIR:-ml}"
-read -ra TARGETS <<< "${TARGETS:-web-dev}" # space-separated target branches
-BRIDGE_FROM="${BRIDGE_FROM:-}"             # e.g. mob-dev   (optional)
-BRIDGE_TO="${BRIDGE_TO:-}"                 # e.g. mob-dev2  (optional)
-BRIDGE_DIR="${BRIDGE_DIR:-DevBridge}"      # 👈 Fixed case to match exact folder name
+read -ra TARGETS <<< "${TARGETS:-web-dev}"
+BRIDGE_FROM="${BRIDGE_FROM:-}"
+BRIDGE_TO="${BRIDGE_TO:-}"
+BRIDGE_DIR="${BRIDGE_DIR:-DevBridge}"
 MSG_TAG="chore(sync)"
+PROTECTED_BRANCHES=(main backup)
 
-git config user.name  "DevBridge Main Sync Bot"
-git config user.email "bot@devbridge.main"
-git fetch origin --prune
+fail() {
+  echo "Sync aborted: $1" >&2
+  exit 1
+}
 
-branch_exists() { git ls-remote --exit-code --heads origin "$1" >/dev/null 2>&1; }
+branch_exists() {
+  git ls-remote --exit-code --heads origin "$1" >/dev/null 2>&1
+}
 
-# Union of target's rules + main's rules: keeps order, drops duplicate lines,
-# keeps blank lines (squeezed), never sorts (negation rules depend on order).
+require_writable() {
+  local protected
+  for protected in "${PROTECTED_BRANCHES[@]}"; do
+    [[ "$1" != "$protected" ]] || fail "$1 is a protected branch"
+  done
+}
+
+# Every version of the directory that the source branch has ever published.
+is_published_tree() {
+  local dir="$1" tree="$2" commit
+  for commit in $(git log --format=%H "$SRC_REF" -- "$dir"); do
+    [[ "$(git rev-parse "$commit:$dir")" == "$tree" ]] && return 0
+  done
+  return 1
+}
+
+# Refuse to replace shared code that was edited directly on a target branch.
+require_no_drift() {
+  local branch="$1" dir="$2" tree
+  tree=$(git rev-parse -q --verify "origin/$branch:$dir" || true)
+  [[ -z "$tree" ]] && return 0
+  is_published_tree "$dir" "$tree" || fail "$branch has its own changes in $dir/. Move them to main first."
+}
+
+# Later gitignore rules win, so a branch's own rules stay last.
 merge_gitignore() {
   {
-    cat .gitignore 2>/dev/null || true
-    echo
     git show "$SRC_REF:.gitignore" 2>/dev/null || true
-  } | awk '/^[[:space:]]*$/ || !seen[$0]++' | cat -s > .gitignore.tmp
+    echo
+    cat .gitignore 2>/dev/null || true
+  } | tr -d '\r' | tac | awk '/^[[:space:]]*$/ || !seen[$0]++' | tac | cat -s \
+    | sed -e '1{/^$/d;}' -e '${/^$/d;}' > .gitignore.tmp
   mv .gitignore.tmp .gitignore
 }
 
-# Mirror one directory exactly (adds, updates AND deletions) from a ref.
 mirror_dir() {
   local ref="$1" dir="$2"
-  git rm -r -q --ignore-unmatch -- "$dir" 2>/dev/null || true
-  rm -rf -- "$dir"
-  if git cat-file -e "$ref:$dir" 2>/dev/null; then
-    git checkout "$ref" -- "$dir"
-  fi
+  git cat-file -e "$ref:$dir" 2>/dev/null || fail "$dir does not exist on $ref"
+  git rm -r -q --ignore-unmatch -- "$dir"
+  git checkout "$ref" -- "$dir"
+}
+
+require_only_staged() {
+  local allowed="$1" unexpected
+  unexpected=$(git diff --cached --name-only | grep -Ev "$allowed" || true)
+  [[ -z "$unexpected" ]] || fail "unexpected files staged: $unexpected"
 }
 
 commit_push() {
   local branch="$1" msg="$2"
   if git diff --cached --quiet; then
     echo "No changes for $branch"
-  else
-    git commit -q -m "$msg"
-    git push origin "HEAD:$branch"
-    echo "Pushed $branch"
+    return
   fi
+  git -c user.name="DevBridge Main Sync Bot" -c user.email="bot@devbridge.main" commit -q -m "$msg"
+  git push origin "HEAD:refs/heads/$branch" || fail "push to $branch was rejected"
+  echo "Pushed $branch"
 }
 
-# ---- 1. ml/ + .gitignore -> every target branch -----------------------
-for T in "${TARGETS[@]}"; do
-  echo "---- $T"
-  if ! branch_exists "$T"; then
-    echo "Skipping: $T not on origin (create/push branch to origin first)"
-    continue
-  fi
+[[ "${GITHUB_ACTIONS:-}" == "true" || "${ALLOW_LOCAL_SYNC:-}" == "1" ]] || fail "this script runs in GitHub Actions"
+[[ -z "$(git status --porcelain)" ]] || fail "the working tree is not clean"
+git fetch origin --prune
+git cat-file -e "$SRC_REF:$SYNC_DIR" 2>/dev/null || fail "$SYNC_DIR does not exist on $SRC_REF"
 
-  git checkout -q -B "$T" "origin/$T"
-  mirror_dir "$SRC_REF" "$SYNC_DIR"
-  merge_gitignore
-  git add -A -- "$SYNC_DIR" .gitignore      # nothing else is staged
-  commit_push "$T" "$MSG_TAG: update $SYNC_DIR/ and merge .gitignore from main"
+# Check every target before anything is written.
+ACTIVE_TARGETS=()
+for target in "${TARGETS[@]}"; do
+  require_writable "$target"
+  if branch_exists "$target"; then
+    require_no_drift "$target" "$SYNC_DIR"
+    ACTIVE_TARGETS+=("$target")
+  else
+    echo "Skipping $target: not on origin"
+  fi
 done
 
-# ---- 2. DevBridge/ : mob-dev -> mob-dev2 (only if mob-dev2 has no own changes)
-if [[ -n "$BRIDGE_FROM" && -n "$BRIDGE_TO" ]] \
-   && branch_exists "$BRIDGE_FROM" && branch_exists "$BRIDGE_TO"; then
+for target in "${ACTIVE_TARGETS[@]}"; do
+  echo "---- $target"
+  git checkout -q --detach "origin/$target"
+  mirror_dir "$SRC_REF" "$SYNC_DIR"
+  merge_gitignore
+  git add -A -- "$SYNC_DIR" .gitignore
+  require_only_staged "^($SYNC_DIR/|\.gitignore$)"
+  commit_push "$target" "$MSG_TAG: update $SYNC_DIR/ and merge .gitignore from main"
+done
+
+if [[ -n "$BRIDGE_FROM" && -n "$BRIDGE_TO" ]] && branch_exists "$BRIDGE_FROM" && branch_exists "$BRIDGE_TO"; then
+  require_writable "$BRIDGE_TO"
   git fetch origin --prune
-  # Commits on BRIDGE_TO (not in BRIDGE_FROM) touching DevBridge/, ignoring our own sync commits
-  OWN=$(git log --oneline "origin/$BRIDGE_FROM..origin/$BRIDGE_TO" \
-          --grep="$MSG_TAG" --invert-grep -- "$BRIDGE_DIR" || true)
-  if [[ -z "$OWN" ]]; then
-    echo "---- $BRIDGE_TO has no own $BRIDGE_DIR changes; mirroring from $BRIDGE_FROM"
-    git checkout -q -B "$BRIDGE_TO" "origin/$BRIDGE_TO"
+  own=$(git log --oneline "origin/$BRIDGE_FROM..origin/$BRIDGE_TO" --grep="$MSG_TAG" --invert-grep -- "$BRIDGE_DIR" || true)
+  if [[ -z "$own" ]]; then
+    echo "---- $BRIDGE_TO: mirroring $BRIDGE_DIR/ from $BRIDGE_FROM"
+    git checkout -q --detach "origin/$BRIDGE_TO"
     mirror_dir "origin/$BRIDGE_FROM" "$BRIDGE_DIR"
     git add -A -- "$BRIDGE_DIR"
+    require_only_staged "^$BRIDGE_DIR/"
     commit_push "$BRIDGE_TO" "$MSG_TAG: mirror $BRIDGE_DIR/ from $BRIDGE_FROM"
   else
-    echo "Skipping DevBridge: $BRIDGE_TO has its own changes:"; echo "$OWN"
+    echo "Skipping $BRIDGE_DIR: $BRIDGE_TO has its own changes:"
+    echo "$own"
   fi
 fi
 

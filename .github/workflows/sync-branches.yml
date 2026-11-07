@@ -7,7 +7,7 @@ on:
 
 concurrency:
   group: sync-branches-workspace
-  cancel-in-progress: false   
+  cancel-in-progress: false
 
 jobs:
   run-sync:
@@ -17,6 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
       - name: Run sync script from temporary directory
