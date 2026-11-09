@@ -26,6 +26,7 @@ The `ml/` folder here is a synced copy from `main`. Make backend and AI changes 
 frontend/   React application
 backend/    Separate MERN coursework skeleton, not used by the frontend
 ml/         Shared FastAPI backend, synced from main
+experiments/minilm/   Optional local MiniLM experiment with its own requirements, not used by the app
 ```
 
 ## Getting started
@@ -37,6 +38,8 @@ ml/         Shared FastAPI backend, synced from main
 .\venv\Scripts\Activate.ps1
 python -m uvicorn backend.main:app --reload --port 8000
 ```
+
+Add `-Test` to also install pytest. From `ml\backend` or `ml\nlp`, run `..\install.ps1`; it always uses `ml\venv`.
 
 **Frontend**, from the `frontend` folder:
 
@@ -61,7 +64,7 @@ Keys stay on the server. Never put them in `frontend/`.
 
 ## Commands
 
-From `frontend/`: `npm run build` and `npm run lint`. From `ml/`: `python -m pytest`.
+From `frontend/`: `npm run build` and `npm run lint`. From `ml/`, after `.\install.ps1 -Test`: `python -m pytest`.
 
 ## Limitations
 
