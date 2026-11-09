@@ -29,6 +29,8 @@ ml/
 ├── backend/   FastAPI application and tests
 ├── nlp/       Provider clients, matching, features and SRS logic
 ├── data/      Synthetic dataset and local runtime data
+├── requirements.txt       Runtime dependencies
+├── requirements-dev.txt   Runtime dependencies plus pytest
 └── install.ps1
 scripts/sync.sh
 ```
@@ -38,10 +40,14 @@ scripts/sync.sh
 From the `ml` folder in PowerShell:
 
 ```powershell
-.\install.ps1
+python -m venv venv
 .\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 python -m uvicorn backend.main:app --reload --port 8000
 ```
+
+Use `requirements-dev.txt` instead to include the test tools. `.\install.ps1` does the same setup, and `.\install.ps1 -Dev` adds the test tools. Neither needs a GPU, model downloads or a database.
 
 The API documentation is at <http://localhost:8000/docs>. Demo data is created on the first start.
 

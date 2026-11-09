@@ -3,45 +3,48 @@ param (
     [string[]]$packages,
 
     [Alias("u")]
-    [switch]$Uninstall
+    [switch]$Uninstall,
+
+    [switch]$Dev
 )
 
-# Ensure Virtual Environment exists
-if (-not (Test-Path -Path "venv")) {
-    Write-Host "venv not found. Creating virtual environment..." -ForegroundColor Cyan
-    python -m venv venv
+$venv=Join-Path $PSScriptRoot "venv"
+$python=Join-Path $venv "Scripts\python.exe"
+
+# Throw rather than exit, so a dot-sourced run does not close the terminal.
+function Invoke-Checked {
+    param([string]$file, [string[]]$arguments)
+
+    & $file @arguments
+
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "Failed to create venv." -ForegroundColor Red
-        exit 1
+        throw "Command failed: $file $($arguments -join ' ')"
     }
 }
 
-# Activate venv for the session
-. .\venv\Scripts\Activate.ps1
+if (-not (Test-Path $python)) {
+    Write-Host "Creating virtual environment..." -ForegroundColor Cyan
+    Invoke-Checked "python" @("-m", "venv", $venv)
+}
 
-python -m pip install --upgrade pip --quiet
+Invoke-Checked $python @("-m", "pip", "install", "--upgrade", "pip", "--quiet")
 
 if ($packages.Count -gt 0) {
-    if ($Uninstall) {
-        foreach ($pkg in $packages) {
-            Write-Host "Removing: $pkg..." -ForegroundColor Red
-            pip uninstall $pkg -y --quiet
-        }
-    } else {
-        foreach ($pkg in $packages) {
-            Write-Host "Installing: $pkg..." -ForegroundColor Yellow
-            pip install $pkg --quiet
-        }
-    }
-} else {
-    if ($Uninstall) {
-        Write-Host "Provide package names to uninstall. Example: .\install.ps1 -u <package-name>" -ForegroundColor Yellow
-        exit 1
-    }
+    $action=if ($Uninstall) { "uninstall" } else { "install" }
+    $extra=if ($Uninstall) { @("-y") } else { @() }
 
-    # One lightweight environment. AI runs at hosted providers, so no model packages are installed.
-    Write-Host "Syncing backend requirements..." -ForegroundColor Gray
-    pip install -r backend\requirements-dev.txt --quiet
+    foreach ($package in $packages) {
+        Write-Host "${action}: $package" -ForegroundColor Yellow
+        Invoke-Checked $python (@("-m", "pip", $action, $package, "--quiet")+$extra)
+    }
+} elseif ($Uninstall) {
+    Write-Host "Provide package names to uninstall. Example: .\install.ps1 -u <package-name>" -ForegroundColor Yellow
+} else {
+    $file=if ($Dev) { "requirements-dev.txt" } else { "requirements.txt" }
+
+    Write-Host "Installing $file..." -ForegroundColor Gray
+    Invoke-Checked $python @("-m", "pip", "install", "-r", (Join-Path $PSScriptRoot $file), "--quiet")
 }
 
-Write-Host "Environment Synchronized and venv activated!" -ForegroundColor Green
+. (Join-Path $venv "Scripts\Activate.ps1")
+Write-Host "Done. If the venv is not active in your terminal, run .\venv\Scripts\Activate.ps1" -ForegroundColor Green
