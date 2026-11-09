@@ -26,12 +26,11 @@ All shared backend and AI changes are made on `main`. On every push, `.github/wo
 
 ```text
 ml/
-├── backend/   FastAPI application and tests
-├── nlp/       Provider clients, matching, features and SRS logic
-├── data/      Synthetic dataset and local runtime data
-├── requirements.txt       Runtime dependencies
-├── requirements-dev.txt   Runtime dependencies plus pytest
-└── install.ps1
+├── requirements.txt   Shared Python dependencies
+├── install.ps1        Creates ml/venv and installs requirements.txt
+├── backend/           FastAPI application and tests (requirements.txt points to ../requirements.txt)
+├── nlp/               Provider clients, matching, features and SRS logic (requirements.txt points to ../requirements.txt)
+└── data/              Synthetic dataset and local runtime data
 scripts/sync.sh
 ```
 
@@ -40,14 +39,12 @@ scripts/sync.sh
 From the `ml` folder in PowerShell:
 
 ```powershell
-python -m venv venv
+.\install.ps1
 .\venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
 python -m uvicorn backend.main:app --reload --port 8000
 ```
 
-Use `requirements-dev.txt` instead to include the test tools. `.\install.ps1` does the same setup, and `.\install.ps1 -Dev` adds the test tools. Neither needs a GPU, model downloads or a database.
+Add `-Test` to also install pytest. From `ml\backend` or `ml\nlp`, run `..\install.ps1` instead; it always uses `ml\venv`. Without the script, run `python -m venv venv` and `python -m pip install -r requirements.txt`. No GPU, model download or database is needed.
 
 The API documentation is at <http://localhost:8000/docs>. Demo data is created on the first start.
 
@@ -69,7 +66,7 @@ Run these from `ml/` with the virtual environment active.
 
 | Task | Command |
 |---|---|
-| Run tests | `python -m pytest` |
+| Run tests (after `.\install.ps1 -Test`) | `python -m pytest` |
 | Test real providers | `python -m pytest -m cloud` |
 | Add missing demo data | `python -m backend.scripts.seed` |
 | Restore demo data | `python -m backend.scripts.seed --reset --yes` |
