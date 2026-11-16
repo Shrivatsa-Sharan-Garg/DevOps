@@ -72,14 +72,17 @@ def register_error_handlers(app:FastAPI)->None:
 
 
 def build_providers(settings:Settings, guard:UsageGuard)->tuple:
-    embedding_provider=CloudflareEmbeddingProvider(
-        settings.cloudflare_account_id,
-        settings.cloudflare_api_token,
-        settings.cloudflare_embedding_model,
-        settings.ai_request_timeout,
-        settings.embedding_batch_size,
-        guard
-    )
+    if settings.ai_provider_mode.strip().lower() == "local":
+        embedding_provider = LocalEmbeddingProvider(model_path=os.getenv("MODEL_PATH"))
+    else:
+        embedding_provider=CloudflareEmbeddingProvider(
+            settings.cloudflare_account_id,
+            settings.cloudflare_api_token,
+            settings.cloudflare_embedding_model,
+            settings.ai_request_timeout,
+            settings.embedding_batch_size,
+            guard
+        )
 
     text_provider=OpenRouterTextProvider(
         settings.openrouter_api_key,

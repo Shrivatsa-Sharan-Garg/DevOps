@@ -12,6 +12,7 @@ $PytestVersion="9.2.0"
 $venv=Join-Path $PSScriptRoot "venv"
 $python=Join-Path $venv "Scripts\python.exe"
 $activate=Join-Path $venv "Scripts\Activate.ps1"
+$reqPath=Join-Path $PSScriptRoot "requirements.txt"
 $dotSourced=$MyInvocation.InvocationName -eq "."
 
 function Stop-Install {
@@ -56,17 +57,27 @@ if ($packages.Count -gt 0) {
 
     foreach ($package in $packages) {
         Write-Host "${action}: $package" -ForegroundColor Yellow
-        Invoke-Checked $python (@("-m", "pip", $action, $package, "--quiet")+$extra)
+        Invoke-Checked $python (@("-m", "pip", $action, $package, "--quiet") + $extra)
     }
+
+    Write-Host "Updating requirements.txt..." -ForegroundColor Cyan
+    & $python -m pip freeze > $reqPath
+    Write-Host "requirements.txt updated successfully!" -ForegroundColor Green
+
 } elseif ($Uninstall) {
     Stop-Install "Provide package names to uninstall. Example: .\install.ps1 -u <package-name>"
 } else {
-    Write-Host "Installing requirements.txt" -ForegroundColor Gray
-    Invoke-Checked $python @("-m", "pip", "install", "-r", (Join-Path $PSScriptRoot "requirements.txt"), "--quiet")
+    if (Test-Path $reqPath) {
+        Write-Host "Installing dependencies from requirements.txt" -ForegroundColor Gray
+        Invoke-Checked $python @("-m", "pip", "install", "-r", $reqPath, "--quiet")
+    } else {
+        Write-Host "requirements.txt not found at $reqPath. Skipping." -ForegroundColor Yellow
+    }
 
     if ($Test) {
         Write-Host "Installing pytest $PytestVersion" -ForegroundColor Gray
         Invoke-Checked $python @("-m", "pip", "install", "pytest==$PytestVersion", "--quiet")
+        & $python -m pip freeze > $reqPath
     }
 }
 
