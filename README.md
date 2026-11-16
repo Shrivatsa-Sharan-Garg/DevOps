@@ -10,15 +10,15 @@ DevBridge is a crowdsourced platform connecting people who have real problems wi
 - On-demand SRS drafts that can be edited and versioned
 - Dashboard metrics from stored records
 
-AI inference runs on hosted free tiers only: Cloudflare Workers AI for embeddings and OpenRouter for SRS drafts. Data is stored in JSON files for development, so no database is needed. Without API keys, duplicate review falls back to a labelled keyword check.
+AI inference supports a **dual-mode architecture (Cloud or Local)**: embeddings can run fully offline using a local `sentence-transformers` model (`paraphrase-MiniLM-L6-v2`) or via Cloudflare Workers AI, while OpenRouter handles SRS text generation. Data is stored in JSON files for development, so no database is needed. Without AI providers configured, duplicate review gracefully falls back to a labelled keyword check.
 
 ## Branches
 
-| Branch | Owns |
-|---|---|
-| `main` | Shared `ml/` backend and AI core, plus the sync workflow |
-| `web-dev` | React frontend and the MERN coursework skeleton |
-| `mob-dev` | Native Android application |
+| Branch    | Owns                                                     |
+| --------- | -------------------------------------------------------- |
+| `main`    | Shared `ml/` backend and AI core, plus the sync workflow |
+| `web-dev` | React frontend and the MERN coursework skeleton          |
+| `mob-dev` | Native Android application                               |
 
 All shared backend and AI changes are made on `main`. On every push, `.github/workflows/sync-branches.yml` copies `ml/` to `web-dev` and `mob-dev`, leaving their other files alone. The sync stops if a branch has its own changes in `ml/`.
 
@@ -32,6 +32,7 @@ ml/
 ├── nlp/               Provider clients, matching, features and SRS logic (requirements.txt points to ../requirements.txt)
 └── data/              Synthetic dataset and local runtime data
 scripts/sync.sh
+
 ```
 
 ## Getting started
@@ -42,35 +43,38 @@ From the `ml` folder in PowerShell:
 .\install.ps1
 .\venv\Scripts\Activate.ps1
 python -m uvicorn backend.main:app --reload --port 8000
+
 ```
 
-Add `-Test` to also install pytest. From `ml\backend` or `ml\nlp`, run `..\install.ps1` instead; it always uses `ml\venv`. Without the script, run `python -m venv venv` and `python -m pip install -r requirements.txt`. No GPU, model download or database is needed.
+Add `-Test` to also install pytest. From `ml\backend` or `ml\nlp`, run `..\install.ps1` instead; it always uses `ml\venv`. Without the script, run `python -m venv venv` and `python -m pip install -r requirements.txt`.
 
-The API documentation is at <http://localhost:8000/docs>. Demo data is created on the first start.
+The API documentation is at [http://localhost:8000/docs](http://localhost:8000/docs). Demo data is created on the first start.
 
 ## Environment variables
 
-Copy `ml/.env.example` to `ml/.env`. These enable the AI features, and the other settings have working defaults:
+Copy `ml/.env.example` to `ml/.env`. Configure your provider mode (`local` or `cloud`):
 
-| Variable | Purpose |
-|---|---|
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account, on the Workers Free plan |
-| `CLOUDFLARE_API_TOKEN` | Token with Workers AI read access |
-| `OPENROUTER_API_KEY` | OpenRouter key |
+| Variable                | Purpose                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------- |
+| `AI_PROVIDER_MODE`      | Set to `local` (for offline sentence-transformers) or `cloud` (for Cloudflare Workers AI)         |
+| `MODEL_PATH`            | Absolute path to local model weights (e.g., `paraphrase-MiniLM-L6-v2`) when running in local mode |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account (required if using cloud mode)                                                 |
+| `CLOUDFLARE_API_TOKEN`  | Token with Workers AI read access (required if using cloud mode)                                  |
+| `OPENROUTER_API_KEY`    | OpenRouter key for SRS generation                                                                 |
 
-Only `:free` OpenRouter models are accepted. `MATCH_MIN_SIMILARITY` has not been calibrated yet, so run `python -m backend.scripts.calibrate_threshold` once you have a Cloudflare key.
+Only `:free` OpenRouter models are accepted. `MATCH_MIN_SIMILARITY` can be calibrated by running `python -m backend.scripts.calibrate_threshold`.
 
 ## Commands
 
 Run these from `ml/` with the virtual environment active.
 
-| Task | Command |
-|---|---|
-| Run tests (after `.\install.ps1 -Test`) | `python -m pytest` |
-| Test real providers | `python -m pytest -m cloud` |
-| Add missing demo data | `python -m backend.scripts.seed` |
-| Restore demo data | `python -m backend.scripts.seed --reset --yes` |
-| Export training rows | `python -m backend.scripts.export_training_data` |
+| Task                                    | Command                                          |
+| --------------------------------------- | ------------------------------------------------ |
+| Run tests (after `.\install.ps1 -Test`) | `python -m pytest`                               |
+| Test real providers                     | `python -m pytest -m cloud`                      |
+| Add missing demo data                   | `python -m backend.scripts.seed`                 |
+| Restore demo data                       | `python -m backend.scripts.seed --reset --yes`   |
+| Export training rows                    | `python -m backend.scripts.export_training_data` |
 
 ## Limitations
 
@@ -78,4 +82,4 @@ This is a local demonstration build. Sign-in uses demo profiles with no real aut
 
 ## Licence
 
-See [LICENSE](LICENSE).
+See [LICENSE](https://www.google.com/search?q=LICENSE).
