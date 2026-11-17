@@ -1,3 +1,4 @@
+import os
 import logging
 import secrets
 from contextlib import asynccontextmanager
@@ -14,6 +15,7 @@ from nlp.errors import AIProviderError
 from nlp.matcher import SemanticMatcher
 from nlp.providers.cloudflare import CloudflareEmbeddingProvider
 from nlp.providers.openrouter import OpenRouterTextProvider
+from nlp.providers.local import LocalEmbeddingProvider
 from nlp.srs import SrsGenerator
 from nlp.usage_guard import UsageGuard
 
@@ -82,14 +84,17 @@ def register_error_handlers(app:FastAPI)->None:
 
 
 def build_providers(settings:Settings, guard:UsageGuard)->tuple:
-    embedding_provider=CloudflareEmbeddingProvider(
-        settings.cloudflare_account_id,
-        settings.cloudflare_api_token,
-        settings.cloudflare_embedding_model,
-        settings.ai_request_timeout,
-        settings.embedding_batch_size,
-        guard
-    )
+    if settings.ai_provider_mode.strip().lower() == "local":
+        embedding_provider = LocalEmbeddingProvider(model_path=os.getenv("MODEL_PATH"))
+    else:
+        embedding_provider=CloudflareEmbeddingProvider(
+            settings.cloudflare_account_id,
+            settings.cloudflare_api_token,
+            settings.cloudflare_embedding_model,
+            settings.ai_request_timeout,
+            settings.embedding_batch_size,
+            guard
+        )
 
     text_provider=OpenRouterTextProvider(
         settings.openrouter_api_key,
