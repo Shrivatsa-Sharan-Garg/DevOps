@@ -147,14 +147,14 @@ function ProfileForm({user}){
         }
     }
 
-    function exitDemo(){
+    function handleSignOut(){
         signOut();
         navigate("/");
     }
 
     return (
         <form className="surface profile-form" onSubmit={handleSubmit} noValidate>
-            <p className="muted">These details are stored in the local development data. No password exists for demo profiles.</p>
+            <p className="muted">These details are saved to your DevBridge account.</p>
 
             <TextField label="Display name" name="name" value={form.name} error={errors.name} onChange={handleChange}/>
             <TextArea
@@ -180,7 +180,7 @@ function ProfileForm({user}){
             </SelectField>
 
             <div className="form-actions">
-                <Button variant="ghost" onClick={exitDemo}>Exit demo session</Button>
+                <Button variant="ghost" onClick={handleSignOut}>Sign out</Button>
                 <Button type="submit" loading={saving}>Save profile</Button>
             </div>
         </form>
@@ -242,7 +242,7 @@ function Workspace(){
         return <Navigate to={signedOut ? "/" : "/login"} replace/>;
     }
 
-    function exitDemo(){
+    function handleSignOut(){
         signOut();
         navigate("/");
     }
@@ -268,9 +268,9 @@ function Workspace(){
                         </NavLink>
                     ))}
 
-                    <button type="button" className="workspace-link" onClick={exitDemo}>
+                    <button type="button" className="workspace-link" onClick={handleSignOut}>
                         <LogOut size={17} aria-hidden="true"/>
-                        Exit demo session
+                        Sign out
                     </button>
                 </nav>
             </aside>

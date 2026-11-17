@@ -1,5 +1,7 @@
 const BASE_URL=import.meta.env.VITE_API_BASE_URL || "";
-const USER_STORAGE_KEY="devbridge-demo-user";
+const TOKEN_STORAGE_KEY="devbridge-token";
+
+let unauthorizedHandler=null;
 
 class ApiError extends Error{
     constructor(message, {status=0, code="network_error", details=null, retryAfter=null}={}){
@@ -11,36 +13,40 @@ class ApiError extends Error{
     }
 }
 
-export function storedUserId(){
+export function storedToken(){
     try{
-        return localStorage.getItem(USER_STORAGE_KEY);
+        return localStorage.getItem(TOKEN_STORAGE_KEY);
     }catch{
         return null;
     }
 }
 
-export function storeUserId(userId){
+export function storeToken(token){
     try{
-        if(userId){
-            localStorage.setItem(USER_STORAGE_KEY, userId);
+        if(token){
+            localStorage.setItem(TOKEN_STORAGE_KEY, token);
         }else{
-            localStorage.removeItem(USER_STORAGE_KEY);
+            localStorage.removeItem(TOKEN_STORAGE_KEY);
         }
     }catch{
         // Storage can be unavailable in private browsing.
     }
 }
 
+export function onUnauthorized(handler){
+    unauthorizedHandler=handler;
+}
+
 function buildHeaders(body){
     const headers={};
-    const userId=storedUserId();
+    const token=storedToken();
 
     if(body !== undefined){
         headers["Content-Type"]="application/json";
     }
 
-    if(userId){
-        headers["X-Demo-User-Id"]=userId;
+    if(token){
+        headers.Authorization=`Bearer ${token}`;
     }
 
     return headers;
@@ -77,7 +83,17 @@ export async function request(path, {method="GET", body, signal}={}){
     }
 
     if(!response.ok){
-        throw await readError(response);
+        const error=await readError(response);
+
+        if(response.status === 401 && storedToken()){
+            unauthorizedHandler?.();
+        }
+
+        throw error;
+    }
+
+    if(response.status === 204){
+        return null;
     }
 
     return response.json();

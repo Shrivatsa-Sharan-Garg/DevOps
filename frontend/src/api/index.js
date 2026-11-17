@@ -35,9 +35,11 @@ export const api={
     listSolutions:(signal) => request("/api/solutions", {signal}),
     getSolution:(id, signal) => request(`/api/solutions/${encodeURIComponent(id)}`, {signal}),
 
-    demoProfiles:(signal) => request("/api/demo-profiles", {signal}),
-    startDemoSession:(userId) => request("/api/demo-session", {method:"POST",body:{user_id:userId}}),
-    register:(body) => request("/api/users", {method:"POST",body}),
+    login:(body) => request("/api/auth/login", {method:"POST",body}),
+    register:(body) => request("/api/auth/register", {method:"POST",body}),
+    logout:() => request("/api/auth/logout", {method:"POST"}),
+    me:(signal) => request("/api/auth/me", {signal}),
+    demoAccounts:(signal) => request("/api/auth/demo-accounts", {signal}),
     updateProfile:(id, body) => request(`/api/users/${encodeURIComponent(id)}`, {method:"PATCH",body}),
     workspace:(signal) => request("/api/workspace", {signal})
 };

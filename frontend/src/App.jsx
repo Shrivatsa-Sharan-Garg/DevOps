@@ -11,6 +11,8 @@ const SolutionDetails=lazy(() => import("./pages/SolutionDetails"));
 const Dashboard=lazy(() => import("./pages/Dashboard"));
 const Workspace=lazy(() => import("./pages/Workspace"));
 const NotFound=lazy(() => import("./pages/NotFound"));
+const Networks=lazy(() => import("./pages/Networks"));
+const Coa=lazy(() => import("./pages/Coa"));
 const Login=lazy(() => import("./pages/Auth").then((module) => ({default:module.Login})));
 const Register=lazy(() => import("./pages/Auth").then((module) => ({default:module.Register})));
 
@@ -35,6 +37,10 @@ function App(){
                 <Route path="workspace" element={<Workspace/>}/>
                 <Route path="workspace/:section" element={<Workspace/>}/>
                 <Route path="profile" element={<Navigate to="/workspace/profile" replace/>}/>
+                <Route path="networks" element={<Networks/>}/>
+                <Route path="networks/:module" element={<Networks/>}/>
+                <Route path="coa" element={<Coa/>}/>
+                <Route path="coa/:module" element={<Coa/>}/>
                 <Route path="login" element={<Login/>}/>
                 <Route path="register" element={<Register/>}/>
                 <Route path="*" element={<NotFound/>}/>

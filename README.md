@@ -9,6 +9,9 @@ DevBridge is a crowdsourced platform connecting people who have real problems wi
 - Community reports, upvotes, comments and solutions
 - Editable, versioned AI drafts of an SRS
 - Animated dashboard with dark and light themes
+- Email and password sign-in against the FastAPI backend
+- **Networks lab**: interactive simulations for all five Computer Networks modules (encapsulation, CRC and parity, ARQ, ALOHA, CSMA/CD, subnetting, routing, TCP, DNS, HTTP and phishing checks)
+- **COA lab**: number systems, logic gates and Karnaugh maps, a step-by-step CPU simulator, cache and virtual memory, pipelining and performance, and assembly examples
 
 ## Branches
 
@@ -23,23 +26,27 @@ The `ml/` folder here is a synced copy from `main`. Make backend and AI changes 
 ## Project structure
 
 ```text
-frontend/   React application
-backend/    Separate MERN coursework skeleton, not used by the frontend
-ml/         Shared FastAPI backend, synced from main
+frontend/             React application
+frontend/src/sim/     Simulation logic for the Networks and COA labs, with unit tests
+backend/              Separate MERN coursework skeleton, not used by the frontend
+ml/                   Shared FastAPI backend, synced from main
 experiments/minilm/   Optional local MiniLM experiment with its own requirements, not used by the app
 ```
 
 ## Getting started
+
+You need Node.js, Python 3.12 or later and a MongoDB server (local Community edition or Atlas).
 
 **API**, from the `ml` folder in PowerShell:
 
 ```powershell
 .\install.ps1
 .\venv\Scripts\Activate.ps1
+Copy-Item .env.example .env
 python -m uvicorn backend.main:app --reload --port 8000
 ```
 
-Add `-Test` to also install pytest. From `ml\backend` or `ml\nlp`, run `..\install.ps1`; it always uses `ml\venv`.
+Add `-Test` to also install pytest. Set `DATA_STORE=json` in `ml/.env` to run without MongoDB.
 
 **Frontend**, from the `frontend` folder:
 
@@ -48,27 +55,45 @@ npm install
 npm run dev
 ```
 
-Open <http://localhost:5173>. Demo data is created on the first start.
+Open <http://localhost:5173/DevOps/>. On the first start against an empty database the API seeds about 240 synthetic problems.
+
+### Demo accounts
+
+In development (`APP_ENV=development`) the API creates three accounts. They are never created in production.
+
+| Name | Email | Role |
+|---|---|---|
+| Riya Sharma | `riya.sharma@example.com` | User |
+| Arjun Mehta | `arjun.mehta@example.com` | Developer |
+| Neha Verma | `neha.verma@example.com` | Developer |
+
+The password for all three is `DevBridge@2026`, unless `DEMO_ACCOUNT_PASSWORD` is changed.
 
 ## Environment variables
 
-Copy `ml/.env.example` to `ml/.env` to enable the AI features. Without keys, duplicate review uses a labelled keyword check.
+Settings live in `ml/.env`; see the README on `main` for the full list. The frontend reads one optional variable:
 
 | Variable | Purpose |
 |---|---|
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account, on the Workers Free plan |
-| `CLOUDFLARE_API_TOKEN` | Token with Workers AI read access |
-| `OPENROUTER_API_KEY` | OpenRouter key |
+| `VITE_API_BASE_URL` | API address for builds served elsewhere, such as GitHub Pages. The dev server proxies `/api` to port 8000 |
 
-Keys stay on the server. Never put them in `frontend/`.
+AI keys stay on the server. Never put them in `frontend/`.
 
 ## Commands
 
-From `frontend/`: `npm run build` and `npm run lint`. From `ml/`, after `.\install.ps1 -Test`: `python -m pytest`.
+From `frontend/`:
+
+| Task | Command |
+|---|---|
+| Simulation unit tests | `npm test` |
+| Lint | `npm run lint` |
+| Production build | `npm run build` |
+
+From `ml/`, after `.\install.ps1 -Test`: `python -m pytest`.
 
 ## Limitations
 
-This is a local demonstration build. Sign-in uses demo profiles with no real authentication, JSON storage suits a single local server, and records marked "Demo data" are synthetic.
+Records marked "Demo data" are synthetic. The GitHub Pages build has no backend unless `VITE_API_BASE_URL` points at a running API; the Networks and COA labs work without one.
 
 ## Licence
 

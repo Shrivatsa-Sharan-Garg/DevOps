@@ -14,16 +14,22 @@ const LINKS=[
     {to:"/problems",label:"Explore"},
     {to:"/solutions",label:"Solutions"},
     {to:"/dashboard",label:"Dashboard"},
+    {to:"/networks",label:"Networks"},
+    {to:"/coa",label:"COA"},
     {to:"/#how-it-works",label:"How it works"}
 ];
 
 function NavItem({to, label, onNavigate}){
+    if(to.includes("#")){
+        return <Link to={to} className="nav-link" onClick={onNavigate}>{label}</Link>;
+    }
+
     return (
-        <NavLink to={to} end={to.includes("#")} className="nav-link" onClick={onNavigate}>
+        <NavLink to={to} className="nav-link" onClick={onNavigate}>
             {({isActive}) => (
                 <>
                     {label}
-                    {isActive && !to.includes("#") && (
+                    {isActive && (
                         <motion.span
                             className="nav-indicator"
                             layoutId="nav-indicator"
@@ -100,10 +106,10 @@ function AccountMenu(){
         >
             {(close) => (
                 <div className="menu-card menu-actions">
-                    <span className="eyebrow">Demo session</span>
+                    <span className="eyebrow">Signed in</span>
                     <Link to="/workspace/overview" onClick={close}><LayoutGrid size={16}/> Workspace</Link>
                     <Link to="/workspace/profile" onClick={close}><UserRound size={16}/> Profile</Link>
-                    <button type="button" onClick={() => handleSignOut(close)}><LogOut size={16}/> Exit demo session</button>
+                    <button type="button" onClick={() => handleSignOut(close)}><LogOut size={16}/> Sign out</button>
                 </div>
             )}
         </Dropdown>

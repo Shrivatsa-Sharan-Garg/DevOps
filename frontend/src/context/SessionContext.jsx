@@ -1,11 +1,11 @@
 import {createContext, useCallback, useContext, useEffect, useMemo, useState} from "react";
 import {api} from "../api";
-import {storedUserId, storeUserId} from "../api/client";
+import {onUnauthorized, storedToken, storeToken} from "../api/client";
 
 const SessionContext=createContext(null);
 
 const THEME_KEY="devbridge-theme";
-const USER_CACHE_KEY="devbridge-demo-profile";
+const USER_CACHE_KEY="devbridge-user";
 const CONSENT_KEY="devbridge-ai-consent";
 
 function readStorage(key){
@@ -29,7 +29,7 @@ function writeStorage(key, value){
 }
 
 function readCachedUser(){
-    if(!storedUserId()){
+    if(!storedToken()){
         return null;
     }
 
@@ -51,60 +51,67 @@ export function SessionProvider({children}){
         writeStorage(THEME_KEY, theme);
     }, [theme]);
 
-    const signIn=useCallback((profile) => {
-        storeUserId(profile.id);
+    const rememberUser=useCallback((profile) => {
         writeStorage(USER_CACHE_KEY, JSON.stringify(profile));
         setUser(profile);
         setSignedOut(false);
     }, []);
 
-    const signOut=useCallback(() => {
-        storeUserId(null);
+    const startSession=useCallback((session) => {
+        storeToken(session.token);
+        rememberUser(session.user);
+
+        return session.user;
+    }, [rememberUser]);
+
+    const clearSession=useCallback(() => {
+        storeToken(null);
         writeStorage(USER_CACHE_KEY, null);
         setUser(null);
-        setSignedOut(true);
     }, []);
 
-    // A demo reset can remove the stored profile.
-    useEffect(() => {
-        const userId=storedUserId();
+    const signOut=useCallback(() => {
+        api.logout().catch(() => null);
+        clearSession();
+        setSignedOut(true);
+    }, [clearSession]);
 
-        if(!userId){
+    useEffect(() => {
+        onUnauthorized(clearSession);
+
+        return () => onUnauthorized(null);
+    }, [clearSession]);
+
+    // An expired token or a database reset can invalidate the stored session.
+    useEffect(() => {
+        if(!storedToken()){
             return;
         }
 
-        api.startDemoSession(userId)
-            .then(signIn)
+        api.me()
+            .then(rememberUser)
             .catch((error) => {
-                if(error.status === 404){
-                    signOut();
+                if(error.status === 401){
+                    clearSession();
                 }
             });
-    }, [signIn, signOut]);
+    }, [rememberUser, clearSession]);
 
-    const startDemo=useCallback(async (userId) => {
-        const profile=await api.startDemoSession(userId);
-
-        signIn(profile);
-
-        return profile;
-    }, [signIn]);
+    const login=useCallback(async (credentials) => {
+        return startSession(await api.login(credentials));
+    }, [startSession]);
 
     const register=useCallback(async (form) => {
-        const profile=await api.register(form);
-
-        signIn(profile);
-
-        return profile;
-    }, [signIn]);
+        return startSession(await api.register(form));
+    }, [startSession]);
 
     const saveProfile=useCallback(async (changes) => {
         const profile=await api.updateProfile(user.id, changes);
 
-        signIn(profile);
+        rememberUser(profile);
 
         return profile;
-    }, [signIn, user]);
+    }, [rememberUser, user]);
 
     const setAiConsent=useCallback((accepted) => {
         writeStorage(CONSENT_KEY, accepted ? "accepted" : null);
@@ -120,13 +127,13 @@ export function SessionProvider({children}){
         signedOut,
         theme,
         aiConsent,
-        startDemo,
+        login,
         register,
         saveProfile,
         signOut,
         setAiConsent,
         toggleTheme
-    }), [user, signedOut, theme, aiConsent, startDemo, register, saveProfile, signOut, setAiConsent, toggleTheme]);
+    }), [user, signedOut, theme, aiConsent, login, register, saveProfile, signOut, setAiConsent, toggleTheme]);
 
     return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

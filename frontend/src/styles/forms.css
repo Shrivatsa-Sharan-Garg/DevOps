@@ -240,6 +240,27 @@ select option{
     border-radius:14px;
 }
 
+button.profile-option{
+    width:100%;
+    color:var(--text);
+    text-align:left;
+    background:none;
+    transition:border-color .2s,background-color .2s;
+}
+
+button.profile-option:hover{
+    background:var(--hover);
+    border-color:var(--accent-border);
+}
+
+.demo-accounts{
+    display:grid;
+    gap:10px;
+    margin-top:22px;
+    padding-top:18px;
+    border-top:1px solid var(--line);
+}
+
 .profile-option > span:nth-child(2){
     flex:1;
     min-width:0;

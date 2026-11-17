@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 CURRENT_DIR = Path(__file__).resolve().parent
-NLP_ROOT = CURRENT_DIR.parent
+NLP_ROOT = CURRENT_DIR.parents[1] / "ml" / "nlp"
 sys.path.append(str(NLP_ROOT))
 
 import numpy as np
