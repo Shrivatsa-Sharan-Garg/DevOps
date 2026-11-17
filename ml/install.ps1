@@ -59,25 +59,19 @@ if ($packages.Count -gt 0) {
         Write-Host "${action}: $package" -ForegroundColor Yellow
         Invoke-Checked $python (@("-m", "pip", $action, $package, "--quiet") + $extra)
     }
-
-    Write-Host "Updating requirements.txt..." -ForegroundColor Cyan
-    & $python -m pip freeze > $reqPath
-    Write-Host "requirements.txt updated successfully!" -ForegroundColor Green
-
 } elseif ($Uninstall) {
     Stop-Install "Provide package names to uninstall. Example: .\install.ps1 -u <package-name>"
 } else {
-    if (Test-Path $reqPath) {
-        Write-Host "Installing dependencies from requirements.txt" -ForegroundColor Gray
-        Invoke-Checked $python @("-m", "pip", "install", "-r", $reqPath, "--quiet")
-    } else {
-        Write-Host "requirements.txt not found at $reqPath. Skipping." -ForegroundColor Yellow
+    if (-not (Test-Path $reqPath)) {
+        Stop-Install "requirements.txt was not found at $reqPath"
     }
+
+    Write-Host "Installing dependencies from requirements.txt" -ForegroundColor Gray
+    Invoke-Checked $python @("-m", "pip", "install", "-r", $reqPath, "--quiet")
 
     if ($Test) {
         Write-Host "Installing pytest $PytestVersion" -ForegroundColor Gray
         Invoke-Checked $python @("-m", "pip", "install", "pytest==$PytestVersion", "--quiet")
-        & $python -m pip freeze > $reqPath
     }
 }
 
