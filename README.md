@@ -5,12 +5,13 @@ DevBridge is a crowdsourced platform connecting people who have real problems wi
 ## Features
 
 - Problem browsing, submission, upvotes, comments and solutions
-- Semantic duplicate review: up to three suggested matches, with the user making the final decision
+- Semantic duplicate review: up to three suggested matches, with the user making the final decision (same problem, related but different, or not related)
 - Community reports that keep each same-problem submission as its own record
 - On-demand SRS drafts that can be edited and versioned
 - Dashboard metrics from stored records
+- Email and password sign-in with hashed passwords and signed tokens
 
-AI inference supports a **dual-mode architecture (Cloud or Local)**: embeddings can run fully offline using a local `sentence-transformers` model (`paraphrase-MiniLM-L6-v2`) or via Cloudflare Workers AI, while OpenRouter handles SRS text generation. Data is stored in JSON files for development, so no database is needed. Without AI providers configured, duplicate review gracefully falls back to a labelled keyword check.
+Embeddings come from Cloudflare Workers AI and SRS drafts from OpenRouter. Without provider keys, duplicate review falls back to a labelled keyword check. Records are stored in MongoDB; a JSON file store remains for offline demos and the test suite.
 
 ## Branches
 
@@ -22,47 +23,69 @@ AI inference supports a **dual-mode architecture (Cloud or Local)**: embeddings 
 
 All shared backend and AI changes are made on `main`. On every push, `.github/workflows/sync-branches.yml` copies `ml/` to `web-dev` and `mob-dev`, leaving their other files alone. The sync stops if a branch has its own changes in `ml/`.
 
+The optional offline MiniLM embedding experiment lives on `web-dev` under `experiments/minilm/`, with its own requirements. It is not part of the shared dependencies.
+
 ## Project structure
 
 ```text
 ml/
-├── requirements.txt   Shared Python dependencies
+├── requirements.txt   Shared Python dependencies, maintained by hand
 ├── install.ps1        Creates ml/venv and installs requirements.txt
-├── backend/           FastAPI application and tests (requirements.txt points to ../requirements.txt)
-├── nlp/               Provider clients, matching, features and SRS logic (requirements.txt points to ../requirements.txt)
-└── data/              Synthetic dataset and local runtime data
+├── backend/           FastAPI application, repositories (MongoDB and JSON) and tests
+├── nlp/               Provider clients, matching, features and SRS logic
+└── data/              Synthetic dataset, demo problems and local runtime data
 scripts/sync.sh
-
 ```
 
 ## Getting started
+
+You need Python 3.12 or later and a MongoDB server (Community edition locally, or a MongoDB Atlas connection string).
 
 From the `ml` folder in PowerShell:
 
 ```powershell
 .\install.ps1
 .\venv\Scripts\Activate.ps1
+Copy-Item .env.example .env
 python -m uvicorn backend.main:app --reload --port 8000
-
 ```
 
-Add `-Test` to also install pytest. From `ml\backend` or `ml\nlp`, run `..\install.ps1` instead; it always uses `ml\venv`. Without the script, run `python -m venv venv` and `python -m pip install -r requirements.txt`.
+Add `-Test` to also install pytest. From `ml\backend` or `ml\nlp`, run `..\install.ps1` instead; it always uses `ml\venv`. The script installs `requirements.txt` as written and never rewrites it.
 
-The API documentation is at [http://localhost:8000/docs](http://localhost:8000/docs). Demo data is created on the first start.
+On the first start against an empty database, the API seeds about 240 synthetic problems and, in development, three demo accounts. The API documentation is at [http://localhost:8000/docs](http://localhost:8000/docs).
+
+To run without MongoDB, set `DATA_STORE=json`.
+
+### Demo accounts
+
+These exist only when `APP_ENV=development`. They are never created in production.
+
+| Name        | Email                     | Role      |
+| ----------- | ------------------------- | --------- |
+| Riya Sharma | `riya.sharma@example.com` | User      |
+| Arjun Mehta | `arjun.mehta@example.com` | Developer |
+| Neha Verma  | `neha.verma@example.com`  | Developer |
+
+All three use the password set by `DEMO_ACCOUNT_PASSWORD`, which defaults to `DevBridge@2026`. Passwords are stored as scrypt hashes.
 
 ## Environment variables
 
-Copy `ml/.env.example` to `ml/.env`. Configure your provider mode (`local` or `cloud`):
+Copy `ml/.env.example` to `ml/.env`. The main settings:
 
-| Variable                | Purpose                                                                                           |
-| ----------------------- | ------------------------------------------------------------------------------------------------- |
-| `AI_PROVIDER_MODE`      | Set to `local` (for offline sentence-transformers) or `cloud` (for Cloudflare Workers AI)         |
-| `MODEL_PATH`            | Absolute path to local model weights (e.g., `paraphrase-MiniLM-L6-v2`) when running in local mode |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account (required if using cloud mode)                                                 |
-| `CLOUDFLARE_API_TOKEN`  | Token with Workers AI read access (required if using cloud mode)                                  |
-| `OPENROUTER_API_KEY`    | OpenRouter key for SRS generation                                                                 |
+| Variable                | Purpose                                                                  |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `APP_ENV`               | `development`, `test` or `production`                                    |
+| `DATA_STORE`            | `mongodb` (default) or `json`                                            |
+| `MONGODB_URI`           | MongoDB connection string                                                |
+| `MONGODB_DATABASE`      | Database name, `devbridge` by default                                    |
+| `AUTH_SECRET`           | Long random value for signing login tokens. Required in production       |
+| `DEMO_ACCOUNT_PASSWORD` | Password for the development demo accounts                               |
+| `AI_PROVIDER_MODE`      | `cloud` to use the providers below, or `disabled`                        |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account, on the Workers Free plan                             |
+| `CLOUDFLARE_API_TOKEN`  | Token with Workers AI read access                                        |
+| `OPENROUTER_API_KEY`    | OpenRouter key for SRS generation                                        |
 
-Only `:free` OpenRouter models are accepted. `MATCH_MIN_SIMILARITY` can be calibrated by running `python -m backend.scripts.calibrate_threshold`.
+Only `:free` OpenRouter models are accepted. `MATCH_MIN_SIMILARITY` can be calibrated with `python -m backend.scripts.calibrate_threshold`.
 
 ## Commands
 
@@ -71,15 +94,18 @@ Run these from `ml/` with the virtual environment active.
 | Task                                    | Command                                          |
 | --------------------------------------- | ------------------------------------------------ |
 | Run tests (after `.\install.ps1 -Test`) | `python -m pytest`                               |
+| Include MongoDB integration tests       | Set `DEVBRIDGE_TEST_MONGODB_URI`, then `python -m pytest` |
 | Test real providers                     | `python -m pytest -m cloud`                      |
-| Add missing demo data                   | `python -m backend.scripts.seed`                 |
-| Restore demo data                       | `python -m backend.scripts.seed --reset --yes`   |
+| Add missing seed data (safe to repeat)  | `python -m backend.scripts.seed`                 |
+| Back up, wipe and reseed                | `python -m backend.scripts.seed --reset --yes`   |
 | Export training rows                    | `python -m backend.scripts.export_training_data` |
+
+The MongoDB integration tests create and drop their own `devbridge_test_*` databases and never touch other databases.
 
 ## Limitations
 
-This is a local demonstration build. Sign-in uses demo profiles with no real authentication, JSON storage suits a single local server, and demo records are synthetic. Problem text is sent to external AI providers only with the user's consent.
+Demo records are synthetic. Problem text is sent to external AI providers only with the user's consent. Duplicate review uses embeddings with lexical features; a learned classifier on top of these features is planned but not built.
 
 ## Licence
 
-See [LICENSE](https://www.google.com/search?q=LICENSE).
+See [LICENSE](LICENSE).
