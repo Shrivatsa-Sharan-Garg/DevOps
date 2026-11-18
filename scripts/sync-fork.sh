@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 set -euo pipefail
 
 UPSTREAM_URL="${UPSTREAM_URL:-https://github.com/Shrivatsa-Sharan-Garg/DevOps.git}"
@@ -22,16 +21,22 @@ git fetch upstream --prune
 
 git checkout "$TARGET_BRANCH"
 
-echo "Merging upstream/$UPSTREAM_BRANCH into local $TARGET_BRANCH..."
-git merge "upstream/$UPSTREAM_BRANCH" --no-edit || {
-  echo "Merge conflict detected! Please resolve conflicts manually."
-  exit 1
-}
+echo "Checking synchronization status with upstream/$UPSTREAM_BRANCH..."
+if git diff --quiet "HEAD" "upstream/$UPSTREAM_BRANCH"; then
+  echo "Fork is already up to date with parent repo. No changes to merge."
+else
+  echo "Merging upstream/$UPSTREAM_BRANCH into local $TARGET_BRANCH..."
+  git merge "upstream/$UPSTREAM_BRANCH" --no-edit || {
+    echo "Merge conflict detected! Please resolve conflicts manually."
+    exit 1
+  }
+  
+  if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    git push origin "$TARGET_BRANCH" || echo "Push skipped or already up-to-date"
+  fi
+fi
 
 if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
-  git push origin "$TARGET_BRANCH" || echo "Push skipped or already up-to-date"
-  
   git reset --hard
   git clean -fd
-fi
-echo "Fork synchronization complete and working tree clean.
+fionization complete and working tree clea
