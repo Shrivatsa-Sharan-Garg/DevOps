@@ -48,7 +48,7 @@ From the `ml` folder in PowerShell:
 .\install.ps1
 .\venv\Scripts\Activate.ps1
 Copy-Item .env.example .env
-python -m uvicorn backend.main:app --reload --port 8000
+python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 
 ```
 
