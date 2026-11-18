@@ -4,7 +4,8 @@ on:
   push:
     branches: [main, mob-dev]
   workflow_dispatch:
-
+  schedule:
+    - cron: '0 0 * * *'
 concurrency:
   group: sync-branches-workspace
   cancel-in-progress: false
@@ -19,6 +20,17 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git User
+        run: |
+          git config --global user.name "DevBridge Sync Bot"
+          git config --global user.email "bot@devbridge.local"
+
+      - name: Run Fork Sync Script (If Fork)
+        run: |
+          chmod +x scripts/sync-fork.sh
+          ./scripts/sync-fork.sh
 
       - name: Run sync script from temporary directory
         env:
