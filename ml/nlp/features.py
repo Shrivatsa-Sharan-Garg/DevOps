@@ -8,7 +8,6 @@ try:
 except ImportError:
     from text import extract_keywords, normalize_text
 
-# Bump when the meaning of a feature changes.
 FEATURE_SCHEMA_VERSION="1.1.0"
 
 
