@@ -32,6 +32,11 @@ jobs:
           chmod +x scripts/sync-fork.sh
           ./scripts/sync-fork.sh
 
+      - name: Ensure clean working tree
+        run: |
+          git reset --hard
+          git clean -fd
+
       - name: Run sync script from temporary directory
         env:
           SRC_REF: origin/main
