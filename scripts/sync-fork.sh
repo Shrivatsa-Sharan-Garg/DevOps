@@ -39,4 +39,6 @@ fi
 if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
   git reset --hard
   git clean -fd
-fionization complete and working tree clea
+fi
+
+echo "Fork synchronization complete and working tree clean."
