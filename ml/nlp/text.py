@@ -3,13 +3,11 @@ import re
 
 import simplemma
 
-# Bump to invalidate cached embeddings.
 TEXT_PREP_VERSION="1"
 
 WORD=re.compile(r"[a-z0-9]+")
 HYPHENATED_WORD=re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
-# simplemma 2.0.0 maps these to "fixe", which would no longer match "fix".
 LEMMA_OVERRIDES={"fixes":"fix","fixed":"fix"}
 
 STOPWORDS=frozenset("""
@@ -34,7 +32,6 @@ def extract_keywords(text:str)->set[str]:
     keywords=set()
 
     for word in HYPHENATED_WORD.findall(text.lower()):
-        # A hyphenated word counts as its parts and as one joined word, so Wi-Fi, WiFi and wifi agree.
         tokens=word.split("-")
 
         if len(tokens) > 1:
@@ -44,7 +41,6 @@ def extract_keywords(text:str)->set[str]:
             if _is_keyword(token.replace("-", "")):
                 lemma=lemmatize(token)
 
-                # A lemma can itself be a stopword, such as "ups" -> "up".
                 if _is_keyword(lemma):
                     keywords.add(lemma)
 
@@ -61,7 +57,6 @@ def lemmatize(token:str)->str:
 
     lemma=simplemma.lemmatize(token, lang="en").lower()
 
-    # simplemma can return hyphens (wifi -> wi-fi), which tokens never contain.
     return "".join(WORD.findall(lemma)) or "".join(WORD.findall(token))
 
 

@@ -145,7 +145,6 @@ class SrsGenerator:
         self.local_model_fallback_path = os.getenv("MODEL_PATH") or r"H:\My Drive\Dev_Bridge\models\paraphrase-MiniLM-L6-v2"
 
     async def generate(self, context: SrsContext, is_same_underlying: bool = False, canonical_id: str | None = None) -> SrsDraft:
-        # Part 5 Requirement: If same underlying problem, reuse canonical SRS reference
         if is_same_underlying and canonical_id:
             return SrsDraft(
                 markdown="",
@@ -176,7 +175,6 @@ class SrsGenerator:
                 status="generated"
             )
         except Exception as exc:
-            # Fallback handling: If OpenRouter fails, check local drive model path availability and mark pending/fallback
             return self._fallback_srs_draft(context, str(exc))
 
     def _fallback_srs_draft(self, context: SrsContext, error_message: str) -> SrsDraft:
