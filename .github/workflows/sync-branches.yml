@@ -2,10 +2,10 @@ name: Sync Branches & Directories
 
 on:
   push:
-    branches: [main, mob-dev]
+    branches:
+      - '**'
   workflow_dispatch:
-  schedule:
-    - cron: '0 0 * * *'
+
 concurrency:
   group: sync-branches-workspace
   cancel-in-progress: false
