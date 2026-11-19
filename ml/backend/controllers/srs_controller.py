@@ -1,23 +1,17 @@
 from typing import Any
 
 from nlp.errors import ProviderDisabled
-from nlp.srs import SrsContext, SrsGenerator
 
 from ..config.settings import Settings
 from ..errors import AppError, consent_required, not_found
 from ..models.schemas import SrsGenerateRequest, SrsUpdateRequest
 from ..repositories.base import Repository
 from ..services.serializers import srs_view
+from ..services.srs_service import SrsService, generation_state
 from ..utils import utc_now_iso
 from .problem_controller import require_problem
 
 Record=dict[str, Any]
-
-MAX_REPORTS_IN_PROMPT=5
-MAX_REPORT_CHARS=800
-
-# Prevent duplicate generation requests.
-_generating:set[str]=set()
 
 
 def _versions_summary(documents:list[Record])->list[Record]:
@@ -28,11 +22,12 @@ def _versions_summary(documents:list[Record])->list[Record]:
 
 
 async def get_srs(problem_id:str, version:int|None, repository:Repository)->Record:
-    await require_problem(problem_id, repository)
+    problem=await require_problem(problem_id, repository)
     documents=await repository.list_srs_versions(problem_id)
+    generation=generation_state(problem,bool(documents))
 
     if not documents:
-        return {"document":None,"versions":[]}
+        return {"document":None,"versions":[],"generation":generation}
 
     selected=documents[-1]
 
@@ -42,23 +37,7 @@ async def get_srs(problem_id:str, version:int|None, repository:Repository)->Reco
         if selected is None:
             raise not_found("This SRS version")
 
-    return {"document":srs_view(selected),"versions":_versions_summary(documents)}
-
-
-async def _build_context(problem:Record, repository:Repository)->SrsContext:
-    reports=await repository.list_reports(problem["id"])
-    allowed=[report for report in reports if report.get("ai_processing_allowed", False)]
-    texts=[report["description"][:MAX_REPORT_CHARS] for report in allowed[:MAX_REPORTS_IN_PROMPT]]
-
-    return SrsContext(
-        title=problem["title"],
-        description=problem["description"],
-        category=problem.get("category", ""),
-        tags=problem.get("tags", []),
-        outcome=problem.get("outcome", ""),
-        constraints=problem.get("constraints", ""),
-        community_reports=texts
-    )
+    return {"document":srs_view(selected),"versions":_versions_summary(documents),"generation":generation}
 
 
 async def generate_srs(
@@ -66,7 +45,7 @@ async def generate_srs(
     payload:SrsGenerateRequest,
     actor:Record|None,
     repository:Repository,
-    generator:SrsGenerator,
+    service:SrsService,
     settings:Settings
 )->Record:
     if not settings.ai_enabled:
@@ -81,28 +60,10 @@ async def generate_srs(
     if not problem.get("ai_processing_allowed", False) and not is_author:
         raise AppError(403, "ai_not_permitted", "The author of this problem did not allow AI processing.")
 
-    if problem_id in _generating:
+    document=await service.generate(problem_id,pending_only=False)
+
+    if document is None:
         raise AppError(409, "srs_in_progress", "An SRS is already being generated for this problem.")
-
-    _generating.add(problem_id)
-
-    try:
-        draft=await generator.generate(await _build_context(problem, repository))
-    finally:
-        _generating.discard(problem_id)
-
-    timestamp=utc_now_iso()
-
-    await repository.save_srs({
-        "problem_id":problem_id,
-        "markdown":draft.markdown,
-        "status":"ai_draft",
-        "model":draft.model,
-        "is_complete":draft.is_complete,
-        "warnings":draft.warnings,
-        "generated_at":timestamp,
-        "updated_at":timestamp
-    })
 
     return await get_srs(problem_id, None, repository)
 

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .json_files import atomic_write_json, read_json
+from .providers.base import EmbeddingProvider
 from .text import TEXT_PREP_VERSION
 
 VECTOR_DECIMALS=7
@@ -61,3 +62,23 @@ class EmbeddingCache:
         }
 
         atomic_write_json(self.path, payload, indent=None)
+
+
+async def embed_with_cache(provider:EmbeddingProvider,cache:EmbeddingCache,texts:list[str])->dict[str,list[float]]:
+    vectors:dict[str,list[float]]={}
+    missing:list[str]=[]
+
+    for text in dict.fromkeys(texts):
+        cached=cache.get(text)
+
+        if cached is None:
+            missing.append(text)
+        else:
+            vectors[text]=cached
+
+    if missing:
+        fresh=dict(zip(missing,await provider.embed(missing)))
+        cache.put_many(fresh)
+        vectors.update(fresh)
+
+    return vectors

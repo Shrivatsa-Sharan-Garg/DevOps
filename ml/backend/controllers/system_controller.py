@@ -20,7 +20,8 @@ def get_ai_status(
     settings:Settings,
     embedding_provider:EmbeddingProvider,
     text_provider:Any,
-    guard:UsageGuard
+    guard:UsageGuard,
+    duplicate_model:Any
 )->dict[str, Any]:
     return {
         "mode":"cloud" if settings.ai_enabled else "disabled",
@@ -41,6 +42,8 @@ def get_ai_status(
         "matching":{
             "min_similarity":settings.match_min_similarity,
             "top_k":min(settings.match_top_k, 3),
-            "candidate_pool":settings.match_candidate_pool
-        }
+            "candidate_pool":settings.match_candidate_pool,
+            "min_keyword_overlap":settings.match_min_keyword_overlap
+        },
+        "duplicate_model":duplicate_model.status()
     }

@@ -1,9 +1,7 @@
-import os
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
 
-from .errors import ProviderBadResponse
+from .errors import ProviderBadResponse, ProviderNotConfigured
 from .providers.base import TextGenerationProvider
 
 MIN_DOCUMENT_CHARS = 200
@@ -82,8 +80,6 @@ class SrsDraft:
     model: str
     is_complete: bool
     warnings: list[str]
-    status: str = "generated"  
-    linked_canonical_id: str | None = None
 
 
 def build_user_prompt(context: SrsContext) -> str:
@@ -142,62 +138,22 @@ def review_document(markdown: str, finish_reason: str | None) -> tuple[bool, lis
 class SrsGenerator:
     def __init__(self, provider: TextGenerationProvider | None = None):
         self.provider = provider
-        self.local_model_fallback_path = os.getenv("MODEL_PATH") or r"H:\My Drive\Dev_Bridge\models\paraphrase-MiniLM-L6-v2"
 
-    async def generate(self, context: SrsContext, is_same_underlying: bool = False, canonical_id: str | None = None) -> SrsDraft:
-        if is_same_underlying and canonical_id:
-            return SrsDraft(
-                markdown="",
-                model="reused-canonical-reference",
-                is_complete=True,
-                warnings=[],
-                status="reused",
-                linked_canonical_id=canonical_id
-            )
+    async def generate(self, context: SrsContext) -> SrsDraft:
+        if self.provider is None:
+            raise ProviderNotConfigured("No SRS generation provider is configured.", provider="openrouter")
 
-        if not self.provider:
-            return self._fallback_srs_draft(context, "OpenRouter provider not configured.")
+        result = await self.provider.generate(SYSTEM_PROMPT, build_user_prompt(context))
+        markdown = clean_model_output(result.text)
 
-        try:
-            result = await self.provider.generate(SYSTEM_PROMPT, build_user_prompt(context))
-            markdown = clean_model_output(result.text)
+        if len(markdown) < MIN_DOCUMENT_CHARS:
+            raise ProviderBadResponse("The SRS model returned too little text to use.", provider=self.provider.name)
 
-            if len(markdown) < MIN_DOCUMENT_CHARS:
-                raise ProviderBadResponse("The SRS model returned too little text to use.", provider=self.provider.name)
-
-            is_complete, warnings = review_document(markdown, result.finish_reason)
-
-            return SrsDraft(
-                markdown=markdown,
-                model=result.model,
-                is_complete=is_complete,
-                warnings=warnings,
-                status="generated"
-            )
-        except Exception as exc:
-            return self._fallback_srs_draft(context, str(exc))
-
-    def _fallback_srs_draft(self, context: SrsContext, error_message: str) -> SrsDraft:
-        local_exists = Path(self.local_model_fallback_path).exists()
-        fallback_note = f"\n\n> **Note:** Cloud SRS generation failed ({error_message}). Local drive path verification: {'Available' if local_exists else 'Not found'} at `{self.local_model_fallback_path}`. SRS marked pending for retry."
-        
-        fallback_markdown = f"""## 1. Introduction
-Purpose: {context.title} [User-provided]
-Scope: {context.description} [User-provided]
-Intended audience: Developers and stakeholders.
-
-## 2. Overall Description
-Product perspective: Independent problem submission pending cloud generation retry.
-Assumptions and dependencies: {context.constraints or 'TBD'} [User-provided]
-
-## 13. Recommended Technology Stack
-AI/ML components: Local sentence-transformers model path at `{self.local_model_fallback_path}` ({'Verified' if local_exists else 'Pending'}).
-{fallback_note}"""
+        is_complete, warnings = review_document(markdown, result.finish_reason)
 
         return SrsDraft(
-            markdown=fallback_markdown,
-            model="local-drive-fallback",
-            is_complete=False,
-            warnings=[f"OpenRouter unavailable. Fallback status: {error_message}"],
-            status="pending_retry"
+            markdown=markdown,
+            model=result.model,
+            is_complete=is_complete,
+            warnings=warnings
         )

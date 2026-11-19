@@ -1,113 +1,115 @@
-import os
+from pathlib import Path
+from typing import Any
+
 import joblib
 import numpy as np
-from typing import Any, Dict, Tuple
+import sklearn
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
-FEATURE_NAMES = ["cosine_similarity", "title_similarity", "keyword_overlap", "tag_overlap"]
+from ..features import FEATURE_SCHEMA_VERSION, MODEL_FEATURES, model_feature_vector
+
+ARTIFACT_VERSION=2
+DEFAULT_MODEL_PATH=Path(__file__).with_name("artifact_mlp_model.pkl")
+DEFAULT_THRESHOLD=0.5
+HIDDEN_NEURONS=8
+MAX_ITERATIONS=2000
+
+PREDICTION_SAME="same_underlying"
+PREDICTION_NOT_SAME="not_same"
+
+
+class ModelUnavailable(Exception):
+    def __init__(self,code:str,message:str):
+        super().__init__(message)
+        self.code=code
+        self.message=message
+
+
+def build_network(random_state:int)->MLPClassifier:
+    return MLPClassifier(
+        hidden_layer_sizes=(HIDDEN_NEURONS,),
+        activation="relu",
+        solver="adam",
+        max_iter=MAX_ITERATIONS,
+        random_state=random_state
+    )
+
+
+def _minor_version(version:str)->str:
+    return ".".join(version.split(".")[:2])
+
 
 class DuplicateMLPClassifier:
-    def __init__(self, model_path: str = None):
-        self.model_path = model_path or os.path.join(os.path.dirname(__file__), "artifact_mlp_model.pkl")
-        self.scaler = StandardScaler()
-        self.mlp = MLPClassifier(
-            hidden_layer_sizes=(8,),
-            activation='relu',
-            solver='adam',
-            max_iter=500,
-            random_state=42,
-            early_stopping=False,
-            validation_fraction=0.2
-        )
-        self.is_trained = False
-        self.threshold = 0.5
+    def __init__(self,network:MLPClassifier,scaler:StandardScaler,threshold:float=DEFAULT_THRESHOLD,metadata:dict[str,Any]|None=None):
+        self.network=network
+        self.scaler=scaler
+        self.threshold=threshold
+        self.metadata=metadata or {}
 
-    def _extract_feature_vector(self, features: Dict[str, Any]) -> list:
-        """Extracts the 4 required features in strict canonical order."""
-        return [
-            float(features.get("cosine_similarity") or 0.0),
-            float(features.get("title_similarity") or 0.0),
-            float(features.get("keyword_overlap") or 0.0),
-            float(features.get("tag_overlap") or 0.0)
-        ]
+    @classmethod
+    def fit(cls,features:np.ndarray,targets:np.ndarray,random_state:int,threshold:float=DEFAULT_THRESHOLD)->"DuplicateMLPClassifier":
+        if len(np.unique(targets)) < 2:
+            raise ValueError("Training data must contain at least one positive and one negative example.")
 
-    def train(self, training_pairs: list[Dict[str, Any]]) -> Dict[str, Any]:
-        """Trains the MLP on labelled feature pairs with train/val split."""
-        X = []
-        y = []
+        scaler=StandardScaler().fit(features)
+        network=build_network(random_state).fit(scaler.transform(features),targets)
 
-        for pair in training_pairs:
-            features = pair.get("features", {})
-            vec = self._extract_feature_vector(features)
-            
-            label_str = pair.get("label", "unrelated")
-            target = 1 if label_str == "same_underlying" else 0
-            
-            X.append(vec)
-            y.append(target)
+        return cls(network,scaler,threshold)
 
-        X = np.array(X)
-        y = np.array(y)
+    def probabilities(self,features:np.ndarray)->np.ndarray:
+        return self.network.predict_proba(self.scaler.transform(features))[:,1]
 
-        if len(np.unique(y)) < 2:
-            raise ValueError("Training data must contain at least one positive and one negative class example.")
+    def assess(self,features:dict[str,Any])->dict[str,Any]:
+        vector=np.array([model_feature_vector(features)])
+        probability=float(self.probabilities(vector)[0])
+        prediction=PREDICTION_SAME if probability >= self.threshold else PREDICTION_NOT_SAME
 
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
-        )
-
-        X_train_scaled = self.scaler.fit_transform(X_train)
-        X_test_scaled = self.scaler.transform(X_test)
-
-        self.mlp.fit(X_train_scaled, y_train)
-        self.is_trained = True
-
-        y_pred = self.mlp.predict(X_test_scaled)
-        metrics = {
-            "sample_count": len(X),
-            "accuracy": float(accuracy_score(y_test, y_pred)),
-            "precision": float(precision_score(y_test, y_pred, zero_division=0)),
-            "recall": float(recall_score(y_test, y_pred, zero_division=0)),
-            "f1_score": float(f1_score(y_test, y_pred, zero_division=0)),
-            "confusion_matrix": confusion_matrix(y_test, y_pred).tolist()
+        return {
+            "prediction":prediction,
+            "probability":round(probability,4),
+            "threshold":self.threshold
         }
 
-        self.save()
-        return metrics
-
-    def predict(self, features: Dict[str, Any]) -> Tuple[int, float]:
-        """Predicts binary duplicate status (1 or 0) and probability score."""
-        if not self.is_trained:
-            self.load()
-            
-        vec = np.array([self._extract_feature_vector(features)])
-        vec_scaled = self.scaler.transform(vec)
-        
-        prob = float(self.mlp.predict_proba(vec_scaled)[0][1])
-        prediction = 1 if prob >= self.threshold else 0
-        return prediction, round(prob, 6)
-
-    def save(self):
-        """Persists the trained model and scaler to disk."""
-        payload = {
-            "mlp": self.mlp,
-            "scaler": self.scaler,
-            "feature_names": FEATURE_NAMES,
-            "threshold": self.threshold,
-            "is_trained": self.is_trained
+    def save(self,path:Path=DEFAULT_MODEL_PATH)->None:
+        payload={
+            "artifact_version":ARTIFACT_VERSION,
+            "network":self.network,
+            "scaler":self.scaler,
+            "feature_names":list(MODEL_FEATURES),
+            "feature_schema_version":FEATURE_SCHEMA_VERSION,
+            "threshold":self.threshold,
+            "sklearn_version":sklearn.__version__,
+            "metadata":self.metadata
         }
-        joblib.dump(payload, self.model_path)
+        joblib.dump(payload,path)
 
-    def load(self):
-        """Loads the trained model and scaler from disk."""
-        if os.path.exists(self.model_path):
-            payload = joblib.load(self.model_path)
-            self.mlp = payload["mlp"]
-            self.scaler = payload["scaler"]
-            self.threshold = payload.get("threshold", 0.5)
-            self.is_trained = payload.get("is_trained", True)
-        else:
-            raise FileNotFoundError(f"Trained MLP model artifact not found at {self.model_path}. Run training first.")
+    @classmethod
+    def load(cls,path:Path=DEFAULT_MODEL_PATH,embedding_model:str|None=None)->"DuplicateMLPClassifier":
+        if not Path(path).exists():
+            raise ModelUnavailable("model_missing","No trained duplicate model was found. Run the training command first.")
+
+        try:
+            payload=joblib.load(path)
+        except Exception as error:
+            raise ModelUnavailable("model_unreadable",f"The duplicate model file could not be read: {error}") from error
+
+        if not isinstance(payload,dict) or payload.get("artifact_version") != ARTIFACT_VERSION:
+            raise ModelUnavailable("model_incompatible","The duplicate model was made by an older training script. Retrain it.")
+
+        if payload.get("feature_names") != list(MODEL_FEATURES):
+            raise ModelUnavailable("model_incompatible","The duplicate model expects different input features. Retrain it.")
+
+        if payload.get("feature_schema_version") != FEATURE_SCHEMA_VERSION:
+            raise ModelUnavailable("model_incompatible","The duplicate model was trained with an older feature schema. Retrain it.")
+
+        if _minor_version(payload.get("sklearn_version","")) != _minor_version(sklearn.__version__):
+            raise ModelUnavailable("model_incompatible","The duplicate model was saved with a different scikit-learn version. Retrain it.")
+
+        metadata=payload.get("metadata") or {}
+        trained_with=metadata.get("embedding_model")
+
+        if embedding_model is not None and trained_with != embedding_model:
+            raise ModelUnavailable("model_incompatible",f"The duplicate model was trained with {trained_with} embeddings, not {embedding_model}. Retrain it.")
+
+        return cls(payload["network"],payload["scaler"],float(payload["threshold"]),metadata)
