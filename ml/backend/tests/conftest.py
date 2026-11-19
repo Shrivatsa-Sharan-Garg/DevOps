@@ -8,10 +8,14 @@ from fastapi.testclient import TestClient
 from backend.auth import create_token
 from backend.config.settings import ML_ROOT, Settings
 from backend.main import create_app
+from backend.services.duplicate_model import DuplicateModel
+from nlp.classifier.train_model import train_and_evaluate
 from nlp.errors import AIProviderError
+from nlp.json_files import read_json
 from nlp.providers.base import GenerationResult
 from nlp.srs import REQUIRED_SECTIONS
 from nlp.text import extract_keywords
+from nlp.training_data import build_training_rows, pair_texts
 
 VECTOR_SIZE=512
 TEST_SECRET="test-secret"
@@ -85,7 +89,8 @@ def settings(tmp_path:Path)->Settings:
         cloudflare_account_id="",
         cloudflare_api_token="",
         openrouter_api_key="",
-        match_min_similarity=0.35
+        match_min_similarity=0.35,
+        duplicate_model_path=tmp_path/"missing_model.pkl"
     )
 
 
@@ -102,6 +107,30 @@ def text_provider()->FakeTextProvider:
 @pytest.fixture
 def client(settings:Settings, embedder:FakeEmbedder, text_provider:FakeTextProvider):
     app=create_app(settings=settings, embedding_provider=embedder, text_provider=text_provider)
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+def fake_training_rows()->list[dict]:
+    dataset=read_json(ML_ROOT/"data"/"synthetic_dataset.json")
+    vectors={text:bag_of_words_vector(text) for text in pair_texts(dataset)}
+
+    return build_training_rows(dataset,[],vectors)["rows"]
+
+
+@pytest.fixture(scope="session")
+def trained_classifier():
+    model,report=train_and_evaluate(fake_training_rows())
+    model.metadata={"embedding_model":FakeEmbedder.model_id,"report":report}
+
+    return model
+
+
+@pytest.fixture
+def model_client(settings:Settings, embedder:FakeEmbedder, text_provider:FakeTextProvider, trained_classifier):
+    model=DuplicateModel(trained_classifier)
+    app=create_app(settings=settings, embedding_provider=embedder, text_provider=text_provider, duplicate_model=model)
 
     with TestClient(app) as test_client:
         yield test_client

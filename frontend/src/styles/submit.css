@@ -216,6 +216,32 @@
     font-size:12.5px;
 }
 
+.model-hint{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:7px;
+    width:fit-content;
+    max-width:100%;
+    padding:6px 11px;
+    color:var(--text-soft);
+    background:var(--hover);
+    border:1px solid var(--line);
+    border-radius:999px;
+    font-size:13px;
+}
+
+.model-hint strong{
+    font-family:var(--font-mono);
+    font-size:12.5px;
+}
+
+.model-hint.is-same{
+    color:var(--text);
+    background:var(--accent-soft);
+    border-color:var(--accent-border);
+}
+
 .candidate-actions{
     display:flex;
     flex-wrap:wrap;
@@ -244,6 +270,11 @@
 .outcome p{
     max-width:46ch;
     color:var(--text-soft);
+}
+
+.outcome .outcome-srs{
+    color:var(--text-muted);
+    font-size:14px;
 }
 
 .outcome-icon{

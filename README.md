@@ -5,13 +5,13 @@ DevBridge is a crowdsourced platform connecting people who have real problems wi
 ## Features
 
 - Problem browsing with search, filters and sorting
-- Duplicate review with up to three suggested matches, where the user makes the final decision
+- Duplicate review with up to three suggested matches, each with the duplicate model's suggestion, where the user makes the final decision
 - Community reports, upvotes, comments and solutions
-- Editable, versioned AI drafts of an SRS
+- SRS drafts generated automatically for new problems, then editable and versioned
 - Animated dashboard with dark and light themes
 - Email and password sign-in against the FastAPI backend
-- **Networks lab**: interactive simulations for all five Computer Networks modules (encapsulation, CRC and parity, ARQ, ALOHA, CSMA/CD, subnetting, routing, TCP, DNS, HTTP and phishing checks)
-- **COA lab**: number systems, logic gates and Karnaugh maps, a step-by-step CPU simulator, cache and virtual memory, pipelining and performance, and assembly examples
+- **Computer Networks**: interactive simulations for all five course modules (encapsulation, CRC and parity, ARQ, ALOHA, CSMA/CD, subnetting, routing, TCP, DNS, HTTP and phishing checks)
+- **Computer Organization and Architecture**: number systems, logic gates and Karnaugh maps, a step-by-step CPU simulator, cache and virtual memory, pipelining and performance, and assembly examples
 
 ## Branches
 
@@ -27,7 +27,7 @@ The `ml/` folder here is a synced copy from `main`. Make backend and AI changes 
 
 ```text
 frontend/             React application
-frontend/src/sim/     Simulation logic for the Networks and COA labs, with unit tests
+frontend/src/sim/     Simulation logic for Computer Networks and COA, with unit tests
 backend/              Separate MERN coursework skeleton, not used by the frontend
 ml/                   Shared FastAPI backend, synced from main
 experiments/minilm/   Optional local MiniLM experiment with its own requirements, not used by the app
@@ -89,11 +89,11 @@ From `frontend/`:
 | Lint | `npm run lint` |
 | Production build | `npm run build` |
 
-From `ml/`, after `.\install.ps1 -Test`: `python -m pytest`.
+From `ml/`, after `.\install.ps1 -Test`: `python -m pytest`. To retrain the duplicate model: `python -m nlp.classifier.train_model` (needs Cloudflare credentials).
 
 ## Limitations
 
-Records marked "Demo data" are synthetic. The GitHub Pages build has no backend unless `VITE_API_BASE_URL` points at a running API; the Networks and COA labs work without one.
+Records marked "Demo data" are synthetic. The GitHub Pages build has no backend unless `VITE_API_BASE_URL` points at a running API; the Computer Networks and COA simulations work without one.
 
 ## Licence
 

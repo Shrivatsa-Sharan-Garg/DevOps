@@ -21,7 +21,13 @@ async def meta():
 async def ai_status(request:Request, settings:SettingsDep):
     state=request.app.state
 
-    return system_controller.get_ai_status(settings, state.embedding_provider, state.text_provider, state.usage_guard)
+    return system_controller.get_ai_status(
+        settings,
+        state.embedding_provider,
+        state.text_provider,
+        state.usage_guard,
+        state.duplicate_model
+    )
 
 
 @router.get("/dashboard")

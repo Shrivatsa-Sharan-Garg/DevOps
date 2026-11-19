@@ -29,8 +29,25 @@ function Stepper({step}){
     );
 }
 
+function srsMessage(srs){
+    if (!srs) {
+        return "";
+    }
+
+    if (srs.shared) {
+        return srs.status === "generated" ? "It shares the existing problem's SRS." : "It will share the existing problem's SRS once one exists.";
+    }
+
+    if (srs.status === "not_requested") {
+        return "AI processing was not allowed, so no SRS was drafted automatically.";
+    }
+
+    return "An SRS draft is being generated automatically. Open the problem to follow it.";
+}
+
 function Outcome({result, onAnother}){
     const navigate=useNavigate();
+    const srsNote=srsMessage(result.srs);
 
     return (
         <motion.div
@@ -50,6 +67,7 @@ function Outcome({result, onAnother}){
 
             <h2>{result.decision === "same" ? "Report added" : "Problem published"}</h2>
             <p>{result.message}</p>
+            {srsNote && <p className="outcome-srs">{srsNote}</p>}
 
             <div className="modal-actions">
                 <Button variant="secondary" onClick={onAnother}>

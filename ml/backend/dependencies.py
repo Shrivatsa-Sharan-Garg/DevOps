@@ -3,13 +3,13 @@ from typing import Annotated, Any
 from fastapi import Depends, Header, Request
 
 from nlp.matcher import SemanticMatcher
-from nlp.srs import SrsGenerator
-from nlp.providers.base import EmbeddingProvider
 
 from .auth import read_token
 from .config.settings import Settings
 from .errors import sign_in_required
 from .repositories.base import Repository
+from .services.duplicate_model import DuplicateModel
+from .services.srs_service import SrsService
 
 
 def get_repository(request: Request) -> Repository:
@@ -20,23 +20,23 @@ def get_app_settings(request: Request) -> Settings:
     return request.app.state.settings
 
 
-def get_embedding_provider(request: Request) -> EmbeddingProvider:
-    return request.app.state.embedding_provider
-
-
 def get_matcher(request: Request) -> SemanticMatcher:
     return request.app.state.matcher
 
 
-def get_srs_generator(request: Request) -> SrsGenerator:
-    return request.app.state.srs_generator
+def get_duplicate_model(request: Request) -> DuplicateModel:
+    return request.app.state.duplicate_model
+
+
+def get_srs_service(request: Request) -> SrsService:
+    return request.app.state.srs_service
 
 
 RepositoryDep = Annotated[Repository, Depends(get_repository)]
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
-EmbeddingProviderDep = Annotated[EmbeddingProvider, Depends(get_embedding_provider)]
 MatcherDep = Annotated[SemanticMatcher, Depends(get_matcher)]
-SrsGeneratorDep = Annotated[SrsGenerator, Depends(get_srs_generator)]
+DuplicateModelDep = Annotated[DuplicateModel, Depends(get_duplicate_model)]
+SrsServiceDep = Annotated[SrsService, Depends(get_srs_service)]
 
 
 async def get_actor(

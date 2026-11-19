@@ -26,6 +26,7 @@ function AmbientBackground(){
             <span className="ambient-glow ambient-two"/>
             <span className="ambient-glow ambient-three"/>
             <span className="ambient-grid"/>
+            <span className="ambient-motes"/>
         </div>
     );
 }

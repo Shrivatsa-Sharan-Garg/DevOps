@@ -1,19 +1,33 @@
 from datetime import timedelta
 from typing import Any
 
-from nlp.matcher import MatchOutcome, SemanticMatcher, Submission
+from nlp.matcher import METHOD_EMBEDDING, MatchOutcome, SemanticMatcher, Submission
 from nlp.training_data import LABEL_RELATED, LABEL_SAME, LABEL_UNRELATED
 
 from ..config.settings import Settings
 from ..errors import AppError, not_found
 from ..models.schemas import AnalyzeRequest, DecisionRequest
-from ..repositories.base import DecisionPlan, Repository
+from ..repositories.base import SRS_NOT_REQUESTED, SRS_PENDING, DecisionPlan, Repository
+from ..services.duplicate_model import DuplicateModel
 from ..services.serializers import GUEST_AUTHOR
+from ..services.srs_service import generation_state
 from ..utils import new_id, parse_time, submission_fingerprint, utc_now, utc_now_iso
 
 Record=dict[str, Any]
 
 DECISION_LABELS={"same":LABEL_SAME,"related":LABEL_RELATED}
+
+
+def _model_summary(outcome:MatchOutcome,model:DuplicateModel)->Record:
+    if not model.available:
+        return {"used":False,"reason":model.code,"message":model.message}
+
+    if outcome.method != METHOD_EMBEDDING:
+        message="The duplicate model needs the AI similarity score, so it was not used for this keyword check."
+
+        return {"used":False,"reason":"needs_embeddings","message":message}
+
+    return {"used":bool(outcome.candidates),"reason":None,"message":None,"threshold":model.classifier.threshold}
 
 
 def _ai_summary(payload:AnalyzeRequest, outcome:MatchOutcome, settings:Settings)->Record:
@@ -46,6 +60,7 @@ async def _session_response(session:Record, repository:Repository)->Record:
             "rank":candidate["rank"],
             "score":candidate["score"],
             "method":candidate["method"],
+            "model_assessment":candidate.get("model_assessment"),
             "problem":{
                 "id":problem["id"],
                 "title":problem["title"],
@@ -64,6 +79,7 @@ async def _session_response(session:Record, repository:Repository)->Record:
         "compared_count":session["compared_count"],
         "embedding_model":session["embedding_model"],
         "ai":session["ai"],
+        "model":session.get("model"),
         "candidates":candidates
     }
 
@@ -73,6 +89,7 @@ async def analyze_submission(
     actor:Record|None,
     repository:Repository,
     matcher:SemanticMatcher,
+    model:DuplicateModel,
     settings:Settings
 )->Record:
     author_id=actor["id"] if actor else GUEST_AUTHOR["id"]
@@ -102,6 +119,7 @@ async def analyze_submission(
         "submission":payload.model_dump(exclude={"ai_consent", "client_request_id"}),
         "ai_consent":payload.ai_consent,
         "ai":_ai_summary(payload, outcome, settings),
+        "model":_model_summary(outcome,model),
         "match_method":outcome.method,
         "embedding_model":outcome.embedding_model,
         "compared_count":outcome.compared_count,
@@ -114,6 +132,7 @@ async def analyze_submission(
                 "score":candidate.score,
                 "method":candidate.method,
                 "features":candidate.features,
+                "model_assessment":model.assess(candidate),
                 "candidate_text_hash":candidate.candidate_text_hash
             }
             for candidate in outcome.candidates
@@ -126,7 +145,7 @@ async def analyze_submission(
     return await _session_response(session, repository)
 
 
-def _new_problem(session:Record, timestamp:str)->Record:
+def _new_problem(session:Record, timestamp:str, srs_status:str)->Record:
     return {
         **session["submission"],
         "id":new_id("prob"),
@@ -139,6 +158,8 @@ def _new_problem(session:Record, timestamp:str)->Record:
         "ai_processing_allowed":session["ai_consent"],
         "fingerprint":session["fingerprint"],
         "match_session_id":session["id"],
+        "srs_status":srs_status,
+        "srs_updated_at":timestamp,
         "source":"runtime",
         "created_at":timestamp,
         "updated_at":timestamp
@@ -187,6 +208,7 @@ def _feedback_records(session:Record, payload:DecisionRequest, timestamp:str)->l
             "score":candidate["score"],
             "match_method":candidate["method"],
             "features":candidate["features"],
+            "model_assessment":candidate.get("model_assessment"),
             "embedding_model":session["embedding_model"],
             "config":session["config"],
             "submission_text_hash":session["submission_text_hash"],
@@ -197,7 +219,7 @@ def _feedback_records(session:Record, payload:DecisionRequest, timestamp:str)->l
     return records
 
 
-def _build_plan(session:Record, payload:DecisionRequest)->DecisionPlan:
+def _build_plan(session:Record, payload:DecisionRequest, srs_status:str)->DecisionPlan:
     timestamp=utc_now_iso()
     feedback=_feedback_records(session, payload, timestamp)
     result:Record={"decision":payload.decision,"replayed":False,"report_id":None,"relationship_id":None}
@@ -212,8 +234,9 @@ def _build_plan(session:Record, payload:DecisionRequest)->DecisionPlan:
 
         return DecisionPlan(result=result, fingerprint=session["fingerprint"], report=report, feedback=feedback)
 
-    problem=_new_problem(session, timestamp)
+    problem=_new_problem(session, timestamp, srs_status)
     result["problem_id"]=problem["id"]
+    result["srs"]={"problem_id":problem["id"],"status":srs_status,"shared":False}
 
     if payload.decision == "none":
         result["message"]="Your problem has been published."
@@ -268,14 +291,28 @@ async def decide_submission(
         raise not_found("This draft")
 
     if session["status"] == "decided":
-        return {**session["result"],"replayed":True}
+        result={**session["result"],"replayed":True}
+    else:
+        _check_session_can_decide(session, actor, settings)
 
-    _check_session_can_decide(session, actor, settings)
+        if payload.decision != "none":
+            suggested={candidate["problem_id"] for candidate in session["candidates"]}
 
-    if payload.decision != "none":
-        suggested={candidate["problem_id"] for candidate in session["candidates"]}
+            if payload.target_problem_id not in suggested:
+                raise AppError(422, "invalid_target", "Choose one of the problems suggested for this draft.")
 
-        if payload.target_problem_id not in suggested:
-            raise AppError(422, "invalid_target", "Choose one of the problems suggested for this draft.")
+        srs_status=SRS_PENDING if session["ai_consent"] and settings.ai_enabled else SRS_NOT_REQUESTED
+        result=await repository.commit_decision(session_id, _build_plan(session, payload, srs_status))
 
-    return await repository.commit_decision(session_id, _build_plan(session, payload))
+    # A Community Report reuses the canonical problem's SRS instead of creating one.
+    if result.get("replayed") or result["decision"] == "same":
+        result={**result,"srs":await _existing_srs(result["problem_id"],result.get("report_id") is not None,repository)}
+
+    return result
+
+
+async def _existing_srs(problem_id:str,shared:bool,repository:Repository)->Record:
+    problem=await repository.get_problem(problem_id) or {}
+    documents=await repository.list_srs_versions(problem_id)
+
+    return {"problem_id":problem_id,"status":generation_state(problem,bool(documents))["status"],"shared":shared}

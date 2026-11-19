@@ -60,7 +60,7 @@ if ($packages.Count -gt 0) {
     }
 
     Write-Host "Updating requirements.txt..." -ForegroundColor Cyan
-    & $python -m pip freeze > $reqPath
+    & $python -m pip freeze | Set-Content -Path $reqPath -Encoding ascii
     Write-Host "requirements.txt updated successfully!" -ForegroundColor Green
 
 } elseif ($Uninstall) {
@@ -76,7 +76,6 @@ if ($packages.Count -gt 0) {
     if ($Test) {
         Write-Host "Installing pytest $PytestVersion" -ForegroundColor Gray
         Invoke-Checked $python @("-m", "pip", "install", "pytest==$PytestVersion", "--quiet")
-        & $python -m pip freeze > $reqPath
     }
 }
 

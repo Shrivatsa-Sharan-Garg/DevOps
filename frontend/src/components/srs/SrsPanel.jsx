@@ -1,4 +1,4 @@
-import {useState} from "react";
+import {useEffect, useState} from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {AnimatePresence, motion} from "motion/react";
@@ -14,6 +14,20 @@ import {ErrorState, Skeleton} from "../ui/States";
 import {formatDate, formatWait} from "../../utils/format";
 
 const STATUS_LABELS={ai_draft:"AI draft, not reviewed",edited:"Edited, not reviewed",reviewed:"Reviewed by a person"};
+const ACTIVE_GENERATION=["pending","generating"];
+const POLL_INTERVAL_MS=4000;
+
+function storedFailure(generation){
+    if (!generation || generation.status !== "failed" || !generation.error) {
+        return null;
+    }
+
+    return {
+        code:generation.error.code,
+        message:generation.error.message,
+        retryAfter:generation.error.retry_after
+    };
+}
 
 function downloadMarkdown(title, markdown){
     const url=URL.createObjectURL(new Blob([markdown], {type:"text/markdown"}));
@@ -25,7 +39,7 @@ function downloadMarkdown(title, markdown){
     URL.revokeObjectURL(url);
 }
 
-function GeneratingState(){
+function GeneratingState({automatic=false}){
     return (
         <div className="srs-generating" role="status">
             <motion.span
@@ -34,8 +48,8 @@ function GeneratingState(){
                 transition={{duration:3,repeat:Infinity,ease:"linear"}}
                 aria-hidden="true"
             />
-            <strong>Drafting your SRS</strong>
-            <p>Free hosted models can take a minute or two. You can keep this page open while it works.</p>
+            <strong>{automatic ? "Drafting the SRS automatically" : "Drafting your SRS"}</strong>
+            <p>Free hosted models can take a minute or two. This page updates by itself when the draft is ready.</p>
             <span className="progress-track" aria-hidden="true"><span className="progress-sweep"/></span>
         </div>
     );
@@ -175,6 +189,21 @@ function SrsPanel({problem}){
     const [generationError, setGenerationError]=useState(null);
     const [modal, setModal]=useState(null);
     const {data, error, loading, reload, setData}=useApi((signal) => api.getSrs(problem.id, version, signal), [problem.id, version]);
+    const generation=data?.generation;
+    const autoRunning=!generating && !data?.document && ACTIVE_GENERATION.includes(generation?.status);
+    const failure=generationError || (data?.document ? null : storedFailure(generation));
+
+    useEffect(() => {
+        if (!autoRunning) {
+            return undefined;
+        }
+
+        const timer=setTimeout(reload,POLL_INTERVAL_MS);
+
+        return () => {
+            clearTimeout(timer);
+        };
+    }, [autoRunning,data,reload]);
 
     async function generate(){
         setModal(null);
@@ -225,13 +254,13 @@ function SrsPanel({problem}){
     return (
         <div className="srs-panel">
             <AnimatePresence mode="wait">
-                {generating ? (
+                {generating || autoRunning ? (
                     <motion.div key="generating" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
-                        <GeneratingState/>
+                        <GeneratingState automatic={autoRunning}/>
                     </motion.div>
                 ) : (
                     <motion.div key="content" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
-                        {generationError && <GenerationError error={generationError} onRetry={requestGeneration}/>}
+                        {failure && <GenerationError error={failure} onRetry={requestGeneration}/>}
 
                         {data?.document ? (
                             <SrsDocument
@@ -250,6 +279,12 @@ function SrsPanel({problem}){
                                     Creates an editable requirements draft from this problem, structured with
                                     ISO/IEC/IEEE 29148:2018 as a reference. It needs a person's review.
                                 </p>
+
+                                {generation?.status === "not_requested" && (
+                                    <p className="muted small">
+                                        The author did not allow AI processing, so no draft was made automatically.
+                                    </p>
+                                )}
 
                                 <Button onClick={requestGeneration}>
                                     <Sparkles size={16} aria-hidden="true"/>

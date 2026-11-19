@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..utils import parse_time, recent_upvote_counts, utc_now
-from .base import DecisionPlan, ProblemQuery, Record, Repository
+from .base import SRS_GENERATING, SRS_PENDING, DecisionPlan, ProblemQuery, Record, Repository
 from .json_store import COLLECTIONS, JsonStore, empty_state
 
 SEEDED_COLLECTIONS=("users", "problems", "community_reports", "relationships", "comments", "solutions")
@@ -363,6 +363,42 @@ class JsonRepository(Repository):
             return None
 
         return await self._write(mutate)
+
+    async def claim_srs_generation(self,problem_id:str,pending_only:bool,stale_before:str,timestamp:str)->Record|None:
+        def mutate(state:Record)->Record|None:
+            problem=find_by_id(state["problems"],problem_id)
+
+            if problem is None:
+                return None
+
+            status=problem.get("srs_status")
+
+            if pending_only:
+                allowed=status == SRS_PENDING
+            else:
+                allowed=status != SRS_GENERATING or problem.get("srs_updated_at","") < stale_before
+
+            if not allowed:
+                return None
+
+            problem["srs_status"]=SRS_GENERATING
+            problem["srs_updated_at"]=timestamp
+
+            return dict(problem)
+
+        return await self._write(mutate)
+
+    async def set_srs_state(self,problem_id:str,changes:Record)->None:
+        def mutate(state:Record)->None:
+            problem=find_by_id(state["problems"],problem_id)
+
+            if problem is not None:
+                problem.update(changes)
+
+        await self._write(mutate)
+
+    async def problem_ids_with_srs_status(self,statuses:tuple[str,...])->list[str]:
+        return await self._read(lambda state:[item["id"] for item in state["problems"] if item.get("srs_status") in statuses])
 
     async def dashboard_snapshot(self)->Record:
         def reader(state:Record)->Record:

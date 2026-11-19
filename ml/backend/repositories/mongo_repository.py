@@ -2,15 +2,14 @@ import re
 from collections import Counter
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
 
-from pymongo import ASCENDING, DESCENDING, AsyncMongoClient, UpdateOne
+from pymongo import ASCENDING, DESCENDING, AsyncMongoClient, ReturnDocument, UpdateOne
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from nlp.json_files import atomic_write_json
 
 from ..utils import recent_upvote_counts, utc_now, utc_now_iso
-from .base import DecisionPlan, ProblemQuery, Record, Repository
+from .base import SRS_GENERATING, SRS_PENDING, DecisionPlan, ProblemQuery, Record, Repository
 from .json_repository import SEEDED_COLLECTIONS, RecordNotFound
 from .json_store import StoreBusyError
 
@@ -19,7 +18,7 @@ LINK_COLLECTIONS=("upvotes", "follows")
 
 INDEXES={
     "users":[("id", True), ("email", True)],
-    "problems":[("id", True), ("fingerprint", False), ("category", False), ("status", False), ("tags", False), ("created_at", False)],
+    "problems":[("id", True), ("fingerprint", False), ("category", False), ("status", False), ("tags", False), ("created_at", False), ("srs_status", False)],
     "community_reports":[("id", True), ("problem_id", False), ("fingerprint", False)],
     "relationships":[("id", True), ("source_problem_id", False), ("target_problem_id", False)],
     "comments":[("id", True), ("problem_id", False)],
@@ -349,6 +348,27 @@ class MongoRepository(Repository):
         await self.db.srs_documents.update_one({"problem_id":problem_id,"version":version}, {"$set":changes})
 
         return await self._one("srs_documents", {"problem_id":problem_id,"version":version})
+
+    async def claim_srs_generation(self,problem_id:str,pending_only:bool,stale_before:str,timestamp:str)->Record|None:
+        if pending_only:
+            condition={"srs_status":SRS_PENDING}
+        else:
+            condition={"$or":[{"srs_status":{"$ne":SRS_GENERATING}},{"srs_updated_at":{"$lt":stale_before}}]}
+
+        return await self.db.problems.find_one_and_update(
+            {"id":problem_id,**condition},
+            {"$set":{"srs_status":SRS_GENERATING,"srs_updated_at":timestamp}},
+            projection=HIDE_ID,
+            return_document=ReturnDocument.AFTER
+        )
+
+    async def set_srs_state(self,problem_id:str,changes:Record)->None:
+        await self.db.problems.update_one({"id":problem_id},{"$set":changes})
+
+    async def problem_ids_with_srs_status(self,statuses:tuple[str,...])->list[str]:
+        problems=await self._all("problems",{"srs_status":{"$in":list(statuses)}})
+
+        return [problem["id"] for problem in problems]
 
     async def dashboard_snapshot(self)->Record:
         names=("users", "problems", "community_reports", "relationships", "upvotes", "follows", "comments", "solutions", "match_sessions", "srs_documents")

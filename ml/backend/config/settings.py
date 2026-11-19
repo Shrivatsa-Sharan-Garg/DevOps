@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     embedding_batch_size:int=32
     embedding_max_chars:int=6000
 
+    duplicate_model_path:Path=ML_ROOT/"nlp"/"classifier"/"artifact_mlp_model.pkl"
+
     cors_origins:str="http://localhost:5173,http://127.0.0.1:5173"
     data_dir:Path=ML_ROOT/"data"
 
@@ -49,7 +51,7 @@ class Settings(BaseSettings):
 
     @property
     def ai_enabled(self)->bool:
-        return self.ai_provider_mode.strip().lower() in ("cloud", "local")
+        return self.ai_provider_mode.strip().lower() == "cloud"
 
     @property
     def is_production(self)->bool:

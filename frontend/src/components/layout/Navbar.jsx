@@ -14,21 +14,21 @@ const LINKS=[
     {to:"/problems",label:"Explore"},
     {to:"/solutions",label:"Solutions"},
     {to:"/dashboard",label:"Dashboard"},
-    {to:"/networks",label:"Networks"},
-    {to:"/coa",label:"COA"},
+    {to:"/networks",label:"Computer Networks",short:"Networks"},
+    {to:"/coa",label:"Computer Organization and Architecture",short:"COA"},
     {to:"/#how-it-works",label:"How it works"}
 ];
 
-function NavItem({to, label, onNavigate}){
+function NavItem({to, label, short, onNavigate}){
     if(to.includes("#")){
         return <Link to={to} className="nav-link" onClick={onNavigate}>{label}</Link>;
     }
 
     return (
-        <NavLink to={to} className="nav-link" onClick={onNavigate}>
+        <NavLink to={to} className="nav-link" title={short ? label : undefined} aria-label={label} onClick={onNavigate}>
             {({isActive}) => (
                 <>
-                    {label}
+                    {short || label}
                     {isActive && (
                         <motion.span
                             className="nav-indicator"

@@ -99,6 +99,10 @@
         padding:26px 16px 56px;
     }
 
+    .ambient-motes{
+        display:none;
+    }
+
     .page-title,
     .section-heading{
         flex-direction:column;

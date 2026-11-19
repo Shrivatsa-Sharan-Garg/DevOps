@@ -1,4 +1,3 @@
-import os
 import logging
 import secrets
 from contextlib import asynccontextmanager
@@ -15,7 +14,6 @@ from nlp.errors import AIProviderError
 from nlp.matcher import SemanticMatcher
 from nlp.providers.cloudflare import CloudflareEmbeddingProvider
 from nlp.providers.openrouter import OpenRouterTextProvider
-from nlp.providers.local import LocalEmbeddingProvider
 from nlp.srs import SrsGenerator
 from nlp.usage_guard import UsageGuard
 
@@ -25,7 +23,9 @@ from .repositories.base import Repository
 from .repositories.factory import build_repository
 from .repositories.json_repository import RecordNotFound
 from .repositories.json_store import StoreBusyError, StoreCorruptedError
+from .services.duplicate_model import DuplicateModel
 from .services.seed_service import ensure_demo_accounts, load_seed_dataset
+from .services.srs_service import SrsService
 from .routes import problem_routes, submission_routes, system_routes, user_routes
 
 logger=logging.getLogger("devbridge")
@@ -84,17 +84,14 @@ def register_error_handlers(app:FastAPI)->None:
 
 
 def build_providers(settings:Settings, guard:UsageGuard)->tuple:
-    if settings.ai_provider_mode.strip().lower() == "local":
-        embedding_provider = LocalEmbeddingProvider(model_path=os.getenv("MODEL_PATH"))
-    else:
-        embedding_provider=CloudflareEmbeddingProvider(
-            settings.cloudflare_account_id,
-            settings.cloudflare_api_token,
-            settings.cloudflare_embedding_model,
-            settings.ai_request_timeout,
-            settings.embedding_batch_size,
-            guard
-        )
+    embedding_provider=CloudflareEmbeddingProvider(
+        settings.cloudflare_account_id,
+        settings.cloudflare_api_token,
+        settings.cloudflare_embedding_model,
+        settings.ai_request_timeout,
+        settings.embedding_batch_size,
+        guard
+    )
 
     text_provider=OpenRouterTextProvider(
         settings.openrouter_api_key,
@@ -125,10 +122,14 @@ def create_app(
     settings:Settings|None=None,
     repository:Repository|None=None,
     embedding_provider=None,
-    text_provider=None
+    text_provider=None,
+    duplicate_model:DuplicateModel|None=None
 )->FastAPI:
     active_settings=settings or get_settings()
     active_repository=repository or build_repository(active_settings)
+
+    if active_settings.ai_provider_mode.strip().lower() == "local":
+        logger.warning("AI_PROVIDER_MODE=local is not supported. The MiniLM experiment lives in experiments/minilm. AI is off.")
 
     guard=UsageGuard(active_settings.usage_path, {
         "cloudflare":active_settings.cloudflare_daily_neuron_budget,
@@ -137,6 +138,8 @@ def create_app(
     default_embedding, default_text=build_providers(active_settings, guard)
     active_embedding=embedding_provider or default_embedding
     active_text=text_provider or default_text
+    active_model=duplicate_model or DuplicateModel.load(active_settings.duplicate_model_path,active_embedding.model_id)
+    srs_service=SrsService(active_repository,SrsGenerator(active_text),active_settings)
 
     @asynccontextmanager
     async def lifespan(_:FastAPI):
@@ -149,8 +152,15 @@ def create_app(
             if active_settings.app_env.strip().lower() == "development":
                 await ensure_demo_accounts(active_repository, active_settings)
 
+        if active_settings.ai_enabled:
+            resumed=await srs_service.resume_unfinished()
+
+            if resumed:
+                logger.info("Resuming SRS generation for %s problem(s).",len(resumed))
+
         yield
 
+        await srs_service.stop()
         await active_repository.close()
 
     app=FastAPI(title="DevBridge API", version="1.0.0", lifespan=lifespan)
@@ -161,7 +171,8 @@ def create_app(
     app.state.usage_guard=guard
     app.state.embedding_provider=active_embedding
     app.state.text_provider=active_text
-    app.state.srs_generator=SrsGenerator(active_text)
+    app.state.srs_service=srs_service
+    app.state.duplicate_model=active_model
     app.state.matcher=SemanticMatcher(
         active_embedding,
         EmbeddingCache(active_settings.embedding_cache_path, active_embedding.model_id),

@@ -1,7 +1,7 @@
 import {useState} from "react";
 import {Link} from "react-router";
 import {motion} from "motion/react";
-import {ArrowBigUp, ArrowLeft, Check, GitBranch, Info, Megaphone, RefreshCw, Sparkles, TextSearch} from "lucide-react";
+import {ArrowBigUp, ArrowLeft, BrainCircuit, Check, GitBranch, Info, Megaphone, RefreshCw, Sparkles, TextSearch} from "lucide-react";
 import Button from "../ui/Button";
 import Modal from "../ui/Modal";
 import {Stagger, StaggerItem} from "../ui/Reveal";
@@ -12,17 +12,17 @@ const CONFIRMATIONS={
     same:{
         title:"Add your report to this problem?",
         action:"Add my report",
-        body:"Your full title and description are kept as a separate community report on this problem. No upvote is added."
+        body:"Your full title and description are kept as a separate community report on this problem. No upvote is added, and the report shares this problem's SRS."
     },
     related:{
         title:"Publish as a related problem?",
         action:"Publish and link",
-        body:"Your problem is published on its own, and both problems stay independently accessible with a link between them."
+        body:"Your problem is published on its own, with its own SRS, and both problems stay independently accessible with a link between them."
     },
     none:{
         title:"Publish as a new problem?",
         action:"Publish problem",
-        body:"Your problem is published on its own, with no link to the suggested problems."
+        body:"Your problem is published on its own, with its own SRS and no link to the suggested problems."
     }
 };
 
@@ -66,6 +66,39 @@ function AiStatusNote({analysis, onRetry}){
     );
 }
 
+function ModelNote({model, hasCandidates}){
+    if (!model || !hasCandidates || model.used || model.reason === "needs_embeddings") {
+        return null;
+    }
+
+    return (
+        <p className="review-note">
+            <BrainCircuit size={15} aria-hidden="true"/>
+            The duplicate model is not loaded, so these are similarity suggestions only.
+        </p>
+    );
+}
+
+function ModelHint({assessment}){
+    if (!assessment) {
+        return null;
+    }
+
+    const isSame=assessment.prediction === "same_underlying";
+    const percent=Math.round(assessment.probability*100);
+
+    return (
+        <p
+            className={isSame ? "model-hint is-same" : "model-hint"}
+            title="The model only separates same from not same. You decide whether it is related."
+        >
+            <BrainCircuit size={14} aria-hidden="true"/>
+            <span>{isSame ? "Model: likely the same problem" : "Model: probably not the same problem"}</span>
+            <strong>{percent}%</strong>
+        </p>
+    );
+}
+
 function CandidateCard({candidate, onChoose}){
     const {problem, method, score}=candidate;
     const isAi=method === "embedding";
@@ -88,6 +121,8 @@ function CandidateCard({candidate, onChoose}){
 
             <h3><Link to={`/problems/${problem.id}`} target="_blank" rel="noreferrer">{problem.title}</Link></h3>
             <p>{shortText(problem.description, 190)}</p>
+
+            <ModelHint assessment={candidate.model_assessment}/>
 
             <div className="tag-row">
                 <CategoryBadge category={problem.category}/>
@@ -144,6 +179,7 @@ function DuplicateReview({analysis, busy, onDecide, onBack, onRetryAi}){
                 </p>
 
                 <AiStatusNote analysis={analysis} onRetry={onRetryAi}/>
+                <ModelNote model={analysis.model} hasCandidates={candidates.length > 0}/>
             </header>
 
             {candidates.length > 0 && (
