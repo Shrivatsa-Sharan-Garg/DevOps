@@ -3,7 +3,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Query
 
 from ..controllers import problem_controller, srs_controller
-from ..dependencies import ActorDep, RepositoryDep, RequiredActorDep, SettingsDep, SrsGeneratorDep
+from ..dependencies import ActorDep, RepositoryDep, RequiredActorDep, SettingsDep, SrsServiceDep
 from ..models.schemas import CommentCreate, SolutionCreate, SrsGenerateRequest, SrsUpdateRequest
 from ..repositories.base import ProblemQuery
 
@@ -74,16 +74,10 @@ async def generate_srs(
     payload: SrsGenerateRequest,
     repository: RepositoryDep,
     actor: ActorDep,
-    generator: SrsGeneratorDep,
+    service: SrsServiceDep,
     settings: SettingsDep
 ):
-    """
-    Triggers automatic ISO/IEC/IEEE 29148 SRS generation via OpenRouter, 
-    with built-in reuse logic for Community Reports and local path fallback handling.
-    """
-    return await srs_controller.generate_srs(
-        problem_id, payload, actor, repository, generator, settings
-    )
+    return await srs_controller.generate_srs(problem_id, payload, actor, repository, service, settings)
 
 
 @router.put("/{problem_id}/srs/{version}")

@@ -4,6 +4,13 @@ from typing import Any
 
 Record=dict[str, Any]
 
+SRS_NOT_STARTED="not_started"
+SRS_NOT_REQUESTED="not_requested"
+SRS_PENDING="pending"
+SRS_GENERATING="generating"
+SRS_GENERATED="generated"
+SRS_FAILED="failed"
+
 
 @dataclass
 class ProblemQuery:
@@ -146,6 +153,18 @@ class Repository(ABC):
 
     @abstractmethod
     async def update_srs(self, problem_id:str, version:int, changes:Record)->Record|None:
+        pass
+
+    @abstractmethod
+    async def claim_srs_generation(self,problem_id:str,pending_only:bool,stale_before:str,timestamp:str)->Record|None:
+        pass
+
+    @abstractmethod
+    async def set_srs_state(self,problem_id:str,changes:Record)->None:
+        pass
+
+    @abstractmethod
+    async def problem_ids_with_srs_status(self,statuses:tuple[str,...])->list[str]:
         pass
 
     @abstractmethod

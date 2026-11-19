@@ -10,6 +10,26 @@ except ImportError:
 
 FEATURE_SCHEMA_VERSION="1.1.0"
 
+MODEL_FEATURES=("cosine_similarity","title_similarity","keyword_overlap","tag_overlap")
+
+
+class MissingFeatureError(ValueError):
+    pass
+
+
+def model_feature_vector(features:dict[str,Any])->list[float]:
+    vector=[]
+
+    for name in MODEL_FEATURES:
+        value=features.get(name)
+
+        if value is None:
+            raise MissingFeatureError(f"The {name} feature is missing.")
+
+        vector.append(float(value))
+
+    return vector
+
 
 def jaccard(left:set[str], right:set[str])->float:
     if not left or not right:

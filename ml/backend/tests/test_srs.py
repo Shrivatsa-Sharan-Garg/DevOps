@@ -2,8 +2,7 @@ import asyncio
 
 import pytest
 
-from backend.controllers import srs_controller
-from nlp.errors import ProviderBadResponse, ProviderQuotaExhausted, ProviderTimeout
+from nlp.errors import ProviderBadResponse, ProviderNotConfigured, ProviderQuotaExhausted, ProviderTimeout
 from nlp.srs import (
     REQUIRED_SECTIONS,
     SYSTEM_PROMPT,
@@ -148,7 +147,12 @@ def test_failure_keeps_the_problem_and_saves_no_document(client, text_provider):
     assert response.status_code == 504
     assert response.json()["error"]["code"] == "ai_timeout"
     assert client.get(PROBLEM).json() == before
-    assert client.get(f"{PROBLEM}/srs").json() == {"document":None,"versions":[]}
+
+    srs=client.get(f"{PROBLEM}/srs").json()
+    assert srs["document"] is None
+    assert srs["versions"] == []
+    assert srs["generation"]["status"] == "failed"
+    assert srs["generation"]["error"]["code"] == "ai_timeout"
 
 
 def test_quota_failure_returns_retry_after(client, text_provider):
@@ -168,16 +172,40 @@ def test_failed_generation_can_be_retried(client, text_provider):
     assert generate(client).status_code == 201
 
 
-def test_second_request_during_generation_is_refused(client, text_provider):
-    srs_controller._generating.add("syn-prob-001")
+def set_srs_state(client, changes:dict, problem_id:str="syn-prob-001"):
+    asyncio.run(client.app.state.repository.set_srs_state(problem_id,changes))
 
-    try:
-        response=generate(client)
-    finally:
-        srs_controller._generating.discard("syn-prob-001")
+
+def test_second_request_during_generation_is_refused(client, text_provider):
+    set_srs_state(client,{"srs_status":"generating","srs_updated_at":"2999-01-01T00:00:00+00:00"})
+    response=generate(client)
 
     assert response.status_code == 409
     assert text_provider.prompts == []
+
+
+def test_stale_generation_does_not_block_a_retry(client, text_provider):
+    set_srs_state(client,{"srs_status":"generating","srs_updated_at":"2000-01-01T00:00:00+00:00"})
+
+    assert generate(client).status_code == 201
+    assert client.get(f"{PROBLEM}/srs").json()["generation"]["status"] == "generated"
+
+
+def test_missing_provider_raises_instead_of_writing_a_placeholder():
+    with pytest.raises(ProviderNotConfigured):
+        asyncio.run(SrsGenerator(None).generate(SrsContext("A title", "A description")))
+
+
+def test_retry_after_failure_creates_one_version(client, text_provider):
+    text_provider.error=ProviderTimeout("Slow.", provider="openrouter")
+    generate(client)
+    generate(client)
+    text_provider.error=None
+    latest=generate(client).json()
+
+    assert [item["version"] for item in latest["versions"]] == [1]
+    assert latest["generation"]["status"] == "generated"
+    assert latest["generation"]["error"] is None
 
 
 def test_truncated_output_is_saved_with_a_warning(client, text_provider):

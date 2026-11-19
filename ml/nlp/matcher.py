@@ -3,7 +3,7 @@ from typing import Any
 
 import numpy as np
 
-from .embedding_cache import EmbeddingCache
+from .embedding_cache import EmbeddingCache, embed_with_cache
 from .errors import AIProviderError
 from .features import FEATURE_SCHEMA_VERSION, compute_pair_features, keyword_overlap
 from .providers.base import EmbeddingProvider
@@ -131,23 +131,7 @@ class SemanticMatcher:
         )
 
     async def _resolve_vectors(self, texts:list[str])->dict[str, list[float]]:
-        vectors:dict[str, list[float]]={}
-        missing:list[str]=[]
-
-        for text in dict.fromkeys(texts):
-            cached=self.cache.get(text)
-
-            if cached is None:
-                missing.append(text)
-            else:
-                vectors[text]=cached
-
-        if missing:
-            fresh=dict(zip(missing, await self.provider.embed(missing)))
-            self.cache.put_many(fresh)
-            vectors.update(fresh)
-
-        return vectors
+        return await embed_with_cache(self.provider,self.cache,texts)
 
     def _features(
         self,

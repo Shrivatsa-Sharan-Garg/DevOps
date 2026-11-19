@@ -257,3 +257,60 @@ def test_demo_accounts_against_mongodb(database_name, settings):
         return await ensure_demo_accounts(repository, settings)
 
     assert len(run(with_repository(database_name, scenario))) == 3
+
+
+def test_srs_claim_is_atomic_and_stale_claims_expire(database_name, settings):
+    async def scenario(repository):
+        await repository.seed(read_json(settings.dataset_path))
+        await repository.set_srs_state("syn-prob-001", {"srs_status":"pending"})
+        first=await repository.claim_srs_generation("syn-prob-001", True, "2000-01-01", "2026-01-01T00:00:00")
+        second=await repository.claim_srs_generation("syn-prob-001", True, "2000-01-01", "2026-01-01T00:00:01")
+        manual=await repository.claim_srs_generation("syn-prob-001", False, "2000-01-01", "2026-01-01T00:00:02")
+        stale=await repository.claim_srs_generation("syn-prob-001", False, "2027-01-01", "2026-01-01T00:00:03")
+        waiting=await repository.problem_ids_with_srs_status(("generating",))
+
+        return (first, second, manual, stale, waiting)
+
+    first, second, manual, stale, waiting=run(with_repository(database_name, scenario))
+
+    assert first["srs_status"] == "generating"
+    assert second is None
+    assert manual is None
+    assert stale["srs_updated_at"] == "2026-01-01T00:00:03"
+    assert waiting == ["syn-prob-001"]
+
+
+def test_decisions_and_srs_persist_in_mongodb(mongo_client, database_name):
+    def decide(decision, target=None, **changes):
+        session=mongo_client.post("/api/submissions/analyze", json=draft(**changes), headers=MEMBER).json()
+        body={"decision":decision,"target_problem_id":target or session["candidates"][0]["problem"]["id"]}
+
+        if decision == "none":
+            body["target_problem_id"]=None
+
+        return mongo_client.post(f"/api/submissions/{session['session_id']}/decision", json=body, headers=MEMBER).json()
+
+    before=mongo_client.get("/api/problems/syn-prob-001").json()
+    same=decide("same", "syn-prob-001")
+    related=decide("related", "syn-prob-001", title="Hostel roommates also split laundry and gas bills")
+
+    async def stored(repository):
+        return {
+            "report":await repository.db.community_reports.find_one({"id":same["report_id"]}),
+            "relationship":await repository.db.relationships.find_one({"id":related["relationship_id"]}),
+            "srs":await repository.list_srs_versions(related["problem_id"]),
+            "problem":await repository.get_problem(related["problem_id"]),
+            "feedback":await repository.list_feedback()
+        }
+
+    saved=run(with_repository(database_name, stored))
+    after=mongo_client.get("/api/problems/syn-prob-001").json()
+
+    assert saved["report"]["problem_id"] == "syn-prob-001"
+    assert saved["relationship"]["target_problem_id"] == "syn-prob-001"
+    assert [item["version"] for item in saved["srs"]] == [1]
+    assert saved["problem"]["srs_status"] == "generated"
+    assert all("model_assessment" in item for item in saved["feedback"])
+    assert same["srs"]["shared"] is True
+    assert after["description"] == before["description"]
+    assert after["upvote_count"] == before["upvote_count"]

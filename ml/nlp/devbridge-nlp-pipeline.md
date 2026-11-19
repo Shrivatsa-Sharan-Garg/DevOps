@@ -84,7 +84,7 @@ def cosine_similarity(left: np.ndarray, right: np.ndarray) -> float:
 * **Implementation Details:**
 * Implements `SemanticMatcher` to manage text comparison workflows.
 * Pre-filters a large candidate corpus down to a manageable pool using fast lexical keyword overlap before executing costly dense vector comparisons.
-* Features automated resilience fallback: if external or local embedding services encounter errors, the system gracefully degrades to keyword-based matching.
+* Features automated resilience fallback: if the Cloudflare embedding service fails, the system degrades to keyword-based matching. No cosine value is invented in that case.
 
 **Searchable References & Code Snippets:**
 
@@ -171,26 +171,20 @@ class SrsGenerator:
 * **File Location:** `ml/nlp/training_data.py`
 * **NLP Theory:** Supervised dataset assembly, feature vector serialization, and human-in-the-loop feedback aggregation for semantic classifier calibration.
 * **Implementation Details:**
-* Maps annotated problem pairs into structured training rows containing multi-dimensional feature dictionaries.
-* Aggregates runtime user feedback to expand training datasets dynamically.
+* Maps annotated problem pairs into structured training rows containing multi-dimensional feature dictionaries, using the same text preparation as live matching.
+* Attaches real Cloudflare embedding vectors when supplied. Without them, `cosine_similarity` stays `None` and training refuses to run.
+* Adds user-confirmed feedback (`user_explicit` or `user_rejected_suggestion`) from the same embedding model and feature schema.
+* Keeps the three original labels; training maps `same_underlying` to 1 and the other two to 0.
+* Records `group_keys` (hashes of each side's text) so pairs sharing a problem stay in the same split.
 
 **Searchable References & Code Snippets:**
 
 * Training row builder:
 
 ```python
-def build_training_rows(dataset: dict[str, Any], feedback: list[dict[str, Any]]) -> dict[str, Any]:
-    rows = [row_from_labelled_pair(pair) for pair in dataset.get("labelled_pairs", [])]
-    for record in feedback:
-        row = row_from_feedback(record)
-        if row is not None:
-            rows.append(row)
-    return {
-        "feature_schema_version": FEATURE_SCHEMA_VERSION,
-        "row_count": len(rows),
-        "rows": rows
-    }
-
+def build_training_rows(dataset, feedback, vectors=None, max_chars=DEFAULT_MAX_CHARS):
+    rows = [row_from_labelled_pair(pair, max_chars, vectors) for pair in dataset.get("labelled_pairs", [])]
+    ...
 ```
 
 ---
@@ -203,31 +197,21 @@ def build_training_rows(dataset: dict[str, Any], feedback: list[dict[str, Any]])
 * **Input Layer:** Accepts a strict 4-feature vector: `[cosine_similarity, title_similarity, keyword_overlap, tag_overlap]`.
 * **Hidden Layer:** 8 neurons with ReLU activation.
 * **Output Layer:** 1 neuron with Sigmoid activation.
-* **Evaluation Metrics:** Evaluated on stratified test splits yielding **83.33% Accuracy**, **100% Precision**, **66.67% Recall**, and an **80.00% F1-Score**.
-* **Model Persistence:** Serializes trained parameters, scalers, and feature schemas into atomic binary weights (`artifact_mlp_model.pkl`).
+* **Loss and optimiser:** Binary cross-entropy (log loss) minimised with Adam, through scikit-learn's `MLPClassifier`.
+* **Evaluation:** Pairs are grouped by shared problem records, then split into training, validation and test sets with `StratifiedGroupKFold`. The decision threshold is chosen on validation only, and the test set is scored once. Grouped 5-fold cross-validation is reported as a steadier estimate. The earlier 83.33% figure came from a random pair-level split with the cosine feature set to zero, so it is not used.
+* **Model Persistence:** `artifact_mlp_model.pkl` holds the network, scaler, feature order, feature schema version, threshold, scikit-learn version, embedding model and training report. A missing or mismatched file is rejected, and duplicate review continues without it.
+* **Live use:** `analyze_submission` scores every embedding candidate and returns the result as `model_assessment`. The user still makes the final choice.
 
 **Searchable References & Code Snippets:**
 
 * MLP Architecture and Feature Extraction:
 
 ```python
-class DuplicateMLPClassifier:
-    def __init__(self, model_path: str = None):
-        self.scaler = StandardScaler()
-        self.mlp = MLPClassifier(
-            hidden_layer_sizes=(8,),
-            activation='relu',
-            solver='adam',
-            max_iter=1000,
-            random_state=42
-        )
+def build_network(random_state):
+    return MLPClassifier(hidden_layer_sizes=(8,), activation="relu", solver="adam", max_iter=2000, random_state=random_state)
 
-    def _extract_feature_vector(self, features: Dict[str, Any]) -> list:
-        return [
-            float(features.get("cosine_similarity") or 0.0),
-            float(features.get("title_similarity") or 0.0),
-            float(features.get("keyword_overlap") or 0.0),
-            float(features.get("tag_overlap") or 0.0)
-        ]
 
+def model_feature_vector(features):
+    # Raises MissingFeatureError instead of substituting zero.
+    return [float(features[name]) for name in MODEL_FEATURES]
 ```
