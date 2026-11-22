@@ -78,6 +78,7 @@ async def _session_response(session:Record, repository:Repository)->Record:
         "match_method":session["match_method"],
         "compared_count":session["compared_count"],
         "embedding_model":session["embedding_model"],
+        "embedding_provider":session.get("embedding_provider"),
         "ai":session["ai"],
         "model":session.get("model"),
         "candidates":candidates
@@ -122,6 +123,7 @@ async def analyze_submission(
         "model":_model_summary(outcome,model),
         "match_method":outcome.method,
         "embedding_model":outcome.embedding_model,
+        "embedding_provider":outcome.embedding_provider,
         "compared_count":outcome.compared_count,
         "submission_text_hash":outcome.submission_text_hash,
         "config":outcome.config,
@@ -210,6 +212,7 @@ def _feedback_records(session:Record, payload:DecisionRequest, timestamp:str)->l
             "features":candidate["features"],
             "model_assessment":candidate.get("model_assessment"),
             "embedding_model":session["embedding_model"],
+            "embedding_provider":session.get("embedding_provider"),
             "config":session["config"],
             "submission_text_hash":session["submission_text_hash"],
             "candidate_text_hash":candidate["candidate_text_hash"],

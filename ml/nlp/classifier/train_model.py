@@ -2,7 +2,9 @@ import argparse
 import asyncio
 import hashlib
 import json
+import os
 import sys
+import tempfile
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,10 +14,12 @@ import numpy as np
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score
 from sklearn.model_selection import StratifiedGroupKFold
 
+from ..embedding_cache import EmbeddingCache, embed_with_cache, provider_cache_identity
 from ..features import FEATURE_SCHEMA_VERSION, MODEL_FEATURES, MissingFeatureError, model_feature_vector
+from ..providers.local import LocalEmbeddingProvider
 from ..text import TEXT_PREP_VERSION
 from ..training_data import CONFIRMED_LABEL_SOURCES, LABELS, binary_target, build_training_rows, pair_texts
-from .classifier import DEFAULT_MODEL_PATH, DEFAULT_THRESHOLD, HIDDEN_NEURONS, DuplicateMLPClassifier
+from .classifier import ARCHITECTURE, DEFAULT_MODEL_PATH, DEFAULT_THRESHOLD, HIDDEN_NEURONS, DuplicateMLPClassifier, ModelUnavailable
 
 DEFAULT_SEED=42
 TEST_FOLDS=5
@@ -33,14 +37,19 @@ def feature_matrix(rows:list[dict[str,Any]])->tuple[np.ndarray,np.ndarray]:
     missing=Counter()
 
     for row in rows:
+        if row.get("label") not in LABELS:
+            raise TrainingDataError(f"Pair {row.get('pair_id','<unknown>')} has an invalid label.")
         try:
             vectors.append(model_feature_vector(row["features"]))
-        except MissingFeatureError:
-            missing[row["source"]]+=1
+        except (KeyError,MissingFeatureError,TypeError,ValueError):
+            missing[row.get("source","unknown")]+=1
 
     if missing:
         details=", ".join(f"{count} {source}" for source,count in missing.items())
         raise TrainingDataError(f"Some training pairs have no embedding similarity ({details}). Nothing was trained.")
+
+    if not vectors:
+        raise TrainingDataError("No labelled training pairs are available. Nothing was trained.")
 
     targets=[binary_target(row["label"]) for row in rows]
 
@@ -140,6 +149,8 @@ def _distribution(rows:list[dict[str,Any]],indexes:np.ndarray)->dict[str,int]:
 
 def train_and_evaluate(rows:list[dict[str,Any]],seed:int=DEFAULT_SEED)->tuple[DuplicateMLPClassifier,dict[str,Any]]:
     features,targets=feature_matrix(rows)
+    if float(np.ptp(features[:,0])) < 1e-8:
+        raise TrainingDataError("MiniLM cosine similarity is constant across the labeled rows. Check the local model and dataset; nothing was trained.")
     groups=group_ids(rows)
     split=split_by_group(targets,groups,seed)
     train,validation,test=split["train"],split["validation"],split["test"]
@@ -174,7 +185,11 @@ def train_and_evaluate(rows:list[dict[str,Any]],seed:int=DEFAULT_SEED)->tuple[Du
     return (model,report)
 
 
-def usable_feedback(feedback:list[dict[str,Any]],embedding_model:str)->tuple[list[dict[str,Any]],dict[str,int]]:
+def usable_feedback(
+    feedback:list[dict[str,Any]],
+    embedding_model:str,
+    embedding_provider:str="minilm"
+)->tuple[list[dict[str,Any]],dict[str,int]]:
     kept=[]
     skipped=Counter()
 
@@ -187,21 +202,26 @@ def usable_feedback(feedback:list[dict[str,Any]],embedding_model:str)->tuple[lis
             skipped["not_user_confirmed"]+=1
         elif record.get("embedding_model") != embedding_model:
             skipped["other_embedding_model"]+=1
+        elif record.get("embedding_provider") != embedding_provider:
+            skipped["other_embedding_provider"]+=1
         elif features.get("schema_version") != FEATURE_SCHEMA_VERSION:
             skipped["other_feature_schema"]+=1
-        elif any(features.get(name) is None for name in MODEL_FEATURES):
-            skipped["missing_features"]+=1
         else:
+            try:
+                model_feature_vector(features)
+            except (MissingFeatureError,TypeError,ValueError):
+                skipped["missing_or_invalid_features"]+=1
+                continue
             kept.append(record)
 
     return (kept,dict(skipped))
 
 
-def dataset_version(dataset:dict[str,Any],feedback:list[dict[str,Any]])->str:
+def dataset_version(dataset:dict[str,Any],feedback:list[dict[str,Any]],embedding_model:str)->str:
     content=json.dumps(dataset.get("labelled_pairs",[]),sort_keys=True).encode("utf-8")
     digest=hashlib.sha256(content).hexdigest()[:12]
 
-    return f"{dataset.get('version','unknown')}+{digest}+feedback{len(feedback)}"
+    return f"{dataset.get('version','unknown')}+{digest}+{embedding_model}+feedback{len(feedback)}"
 
 
 async def _load_feedback(settings)->list[dict[str,Any]]:
@@ -216,23 +236,22 @@ async def _load_feedback(settings)->list[dict[str,Any]]:
         await repository.close()
 
 
-async def _embed_dataset(settings,texts:list[str])->tuple[dict[str,list[float]],str]:
-    from nlp.embedding_cache import EmbeddingCache, embed_with_cache
-    from nlp.providers.cloudflare import CloudflareEmbeddingProvider
-    from nlp.usage_guard import UsageGuard
+async def _embed_dataset(settings,texts:list[str])->tuple[dict[str,list[float]],str,str]:
+    provider=LocalEmbeddingProvider(settings.minilm_model_path,settings.embedding_batch_size)
+    cache=EmbeddingCache(settings.embedding_cache_path,provider_cache_identity(provider))
 
-    guard=UsageGuard(settings.usage_path,{"cloudflare":settings.cloudflare_daily_neuron_budget})
-    provider=CloudflareEmbeddingProvider(
-        settings.cloudflare_account_id,
-        settings.cloudflare_api_token,
-        settings.cloudflare_embedding_model,
-        settings.ai_request_timeout,
-        settings.embedding_batch_size,
-        guard
-    )
-    cache=EmbeddingCache(settings.embedding_cache_path,provider.model_id)
+    return (await embed_with_cache(provider,cache,texts),provider.model_id,provider.name)
 
-    return (await embed_with_cache(provider,cache,texts),provider.model_id)
+
+def _check_artifact(output:Path,embedding_model:str,embedding_provider:str)->int:
+    try:
+        DuplicateMLPClassifier.load(output,embedding_model,embedding_provider)
+    except ModelUnavailable as error:
+        print(f"ANN checkpoint is not compatible: {error.message}")
+        return 2
+
+    print(f"Compatible {embedding_provider} ANN checkpoint found at {output}")
+    return 0
 
 
 async def run(arguments:argparse.Namespace)->int:
@@ -241,21 +260,27 @@ async def run(arguments:argparse.Namespace)->int:
     from nlp.json_files import atomic_write_json, read_json
 
     settings=get_settings()
+    output=Path(arguments.output)
+    provider=LocalEmbeddingProvider(settings.minilm_model_path,settings.embedding_batch_size)
+
+    if getattr(arguments,"check",False):
+        return _check_artifact(output,provider.model_id,provider.name)
+
     dataset=read_json(settings.dataset_path,default={}) or {}
     texts=pair_texts(dataset,settings.embedding_max_chars)
 
     try:
-        vectors,embedding_model=await _embed_dataset(settings,texts)
+        vectors,embedding_model,embedding_provider=await _embed_dataset(settings,texts)
     except AIProviderError as error:
-        print(f"Could not get Cloudflare embeddings ({error.code}): {error.message}")
-        print("Nothing was trained. Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN in ml/.env and try again.")
+        print(f"Could not generate local MiniLM embeddings ({error.code}): {error.message}")
+        print("Nothing was trained. Check MINILM_MODEL_PATH in ml/.env and try again.")
         return 1
 
     feedback,skipped=[],{}
 
     if arguments.feedback:
         try:
-            feedback,skipped=usable_feedback(await _load_feedback(settings),embedding_model)
+            feedback,skipped=usable_feedback(await _load_feedback(settings),embedding_model,embedding_provider)
         except Exception as error:
             print(f"Could not read feedback from the {settings.data_store} store: {error}")
             print("Fix the database connection, or run again with --no-feedback.")
@@ -270,20 +295,49 @@ async def run(arguments:argparse.Namespace)->int:
         return 1
 
     model.metadata={
+        "embedding_provider":embedding_provider,
         "embedding_model":embedding_model,
         "text_prep_version":TEXT_PREP_VERSION,
-        "training_dataset_version":dataset_version(dataset,feedback),
+        "feature_names":list(MODEL_FEATURES),
+        "feature_schema_version":FEATURE_SCHEMA_VERSION,
+        "architecture":ARCHITECTURE,
+        "labels":{"same_underlying":1,"related_different":0,"unrelated":0},
+        "training_dataset_version":dataset_version(dataset,feedback,embedding_model),
         "trained_at":datetime.now(timezone.utc).isoformat(),
         "row_count":len(rows),
         "feedback_rows":len(feedback),
         "feedback_skipped":skipped,
+        "threshold":model.threshold,
         "report":report
     }
-    output=Path(arguments.output)
-    model.save(output)
-    atomic_write_json(output.with_name("training_report.json"),model.metadata)
+
+    output.parent.mkdir(parents=True,exist_ok=True)
+    report_path=output.with_name("training_report.json")
+    descriptor,temp_artifact=tempfile.mkstemp(dir=output.parent,prefix=f".{output.name}.",suffix=".candidate")
+    os.close(descriptor)
+    os.unlink(temp_artifact)
+    descriptor,temp_report=tempfile.mkstemp(dir=output.parent,prefix=f".{report_path.name}.",suffix=".candidate")
+    os.close(descriptor)
+    os.unlink(temp_report)
+
+    try:
+        model.save(Path(temp_artifact))
+        DuplicateMLPClassifier.load(Path(temp_artifact),embedding_model,embedding_provider)
+        metadata={**model.metadata,"training_report_path":str(report_path)}
+        model.metadata=metadata
+        model.save(Path(temp_artifact))
+        DuplicateMLPClassifier.load(Path(temp_artifact),embedding_model,embedding_provider)
+        atomic_write_json(Path(temp_report),metadata)
+        os.replace(temp_artifact,output)
+        os.replace(temp_report,report_path)
+    finally:
+        for candidate in (temp_artifact,temp_report):
+            if os.path.exists(candidate):
+                os.unlink(candidate)
+
     print_report(model.metadata)
     print(f"\nSaved the model to {output}")
+    print(f"Saved the training report to {report_path}")
 
     return 0
 
@@ -310,7 +364,10 @@ def print_report(metadata:dict[str,Any])->None:
 
 def parse_arguments(argv:list[str]|None=None)->argparse.Namespace:
     parser=argparse.ArgumentParser(description="Train the DevBridge duplicate-problem ANN.")
-    parser.add_argument("--no-feedback",dest="feedback",action="store_false",help="Use only the labelled synthetic pairs.")
+    parser.add_argument("--feedback",action="store_true",help="Include only explicitly confirmed feedback with matching MiniLM/provider/schema metadata.")
+    parser.add_argument("--no-feedback",dest="feedback",action="store_false",help="Use only the labelled dataset (the default).")
+    parser.set_defaults(feedback=False)
+    parser.add_argument("--check",action="store_true",help="Check the current ANN artifact compatibility without training.")
     parser.add_argument("--seed",type=int,default=DEFAULT_SEED)
     parser.add_argument("--output",default=str(DEFAULT_MODEL_PATH))
 

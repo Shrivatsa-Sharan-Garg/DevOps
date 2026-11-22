@@ -6,7 +6,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Pull MODEL_PATH and provide a fallback if it's still missing
-MODEL_PATH = os.getenv("MODEL_PATH")
+MODEL_PATH = os.getenv("MINILM_MODEL_PATH") or os.getenv("MODEL_PATH")
+
+if not MODEL_PATH:
+    raise RuntimeError("Set MINILM_MODEL_PATH in experiments/minilm/.env to the downloaded model directory.")
 
 print(f"Loading local model from: {MODEL_PATH} ...")
 model = SentenceTransformer(MODEL_PATH)

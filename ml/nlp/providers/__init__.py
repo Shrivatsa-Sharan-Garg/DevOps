@@ -1,0 +1,3 @@
+from .local import LocalEmbeddingProvider
+
+__all__ = ["LocalEmbeddingProvider"]

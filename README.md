@@ -29,24 +29,23 @@ The `ml/` folder here is a synced copy from `main`. Make backend and AI changes 
 frontend/             React application
 frontend/src/sim/     Simulation logic for Computer Networks and COA, with unit tests
 backend/              Separate MERN coursework skeleton, not used by the frontend
-ml/                   Shared FastAPI backend, synced from main
-experiments/minilm/   Optional local MiniLM experiment with its own requirements, not used by the app
+ml/                   FastAPI backend, MiniLM embeddings, NLP features and duplicate ANN
+experiments/minilm/   Earlier standalone MiniLM experiment and download helper
 ```
 
 ## Getting started
 
-You need Node.js, Python 3.12 or later and a MongoDB server (local Community edition or Atlas).
+You need Node.js and CPython 3.12 or 3.13. The API defaults to a local JSON store, so MongoDB is optional.
 
 **API**, from the `ml` folder in PowerShell:
 
 ```powershell
-.\install.ps1
-.\venv\Scripts\Activate.ps1
-Copy-Item .env.example .env
-python -m uvicorn backend.main:app --reload --port 8000
+.\run-ai.ps1
 ```
 
-Add `-Test` to also install pytest. Set `DATA_STORE=json` in `ml/.env` to run without MongoDB.
+On first run the script creates `ml/.env` and the virtual environment, installs Python dependencies if needed, validates the local model, trains the ANN if its checkpoint is missing or incompatible, and starts the API at <http://127.0.0.1:8000/docs>. First-time dependency installation needs internet access. The model itself is loaded from disk only; it is never downloaded by the application.
+
+Set `MINILM_MODEL_PATH` in `ml/.env` to the folder containing the downloaded `sentence-transformers/paraphrase-MiniLM-L6-v2` model files. For example: `MINILM_MODEL_PATH="T:/actual/path/to/paraphrase-MiniLM-L6-v2"`. This is the only model-specific setting needed for NLP and ANN. `AI_PROVIDER_MODE=local` is the default. Cloudflare credentials are optional and unused in this mode. OpenRouter is separate and is needed only for SRS text generation.
 
 **Frontend**, from the `frontend` folder:
 
@@ -81,6 +80,16 @@ AI keys stay on the server. Never put them in `frontend/`.
 
 ## Commands
 
+From `ml/`:
+
+| Task | Command |
+|---|---|
+| Backend tests | `python -m pytest` |
+| Force fresh grouped ANN training | `.\run-ai.ps1 -Retrain` |
+| Train ANN without starting the server | `python -m nlp.classifier.train_model --no-feedback` |
+
+The ANN consumes four ordered values: MiniLM cosine similarity, title similarity, Simplemma-based keyword overlap, and tag overlap. Its existing 4 input, 8 ReLU hidden, binary sigmoid-output `DuplicateMLPClassifier` is preserved. Trained output is saved to `ml/nlp/classifier/artifact_mlp_model.pkl`; the report is `ml/nlp/classifier/training_report.json`.
+
 From `frontend/`:
 
 | Task | Command |
@@ -89,7 +98,7 @@ From `frontend/`:
 | Lint | `npm run lint` |
 | Production build | `npm run build` |
 
-From `ml/`, after `.\install.ps1 -Test`: `python -m pytest`. To retrain the duplicate model: `python -m nlp.classifier.train_model` (needs Cloudflare credentials).
+MiniLM produces sentence vectors. Cosine similarity is calculated from those vectors; the ANN receives that scalar plus the three lexical/tag features. The model artifact records its provider and model and rejects artifacts trained with another provider. SRS generation remains separate on OpenRouter and may be unavailable while local duplicate matching continues.
 
 ## Limitations
 

@@ -70,7 +70,7 @@ def keyword_overlap(left: str, right: str) -> float:
 def cosine_similarity(left: np.ndarray, right: np.ndarray) -> float:
     denominator = float(np.linalg.norm(left) * np.linalg.norm(right))
     if denominator == 0.0:
-        return 0.0
+        raise ValueError("Cosine similarity cannot be computed from a zero embedding.")
     return float(np.dot(left, right) / denominator)
 
 ```
@@ -84,7 +84,7 @@ def cosine_similarity(left: np.ndarray, right: np.ndarray) -> float:
 * **Implementation Details:**
 * Implements `SemanticMatcher` to manage text comparison workflows.
 * Pre-filters a large candidate corpus down to a manageable pool using fast lexical keyword overlap before executing costly dense vector comparisons.
-* Features automated resilience fallback: if the Cloudflare embedding service fails, the system degrades to keyword-based matching. No cosine value is invented in that case.
+* MiniLM is the default local provider. A MiniLM loading or inference error is surfaced to the caller; it does not silently switch to keyword-only results. Cloudflare remains an explicit optional provider.
 
 **Searchable References & Code Snippets:**
 
@@ -172,8 +172,8 @@ class SrsGenerator:
 * **NLP Theory:** Supervised dataset assembly, feature vector serialization, and human-in-the-loop feedback aggregation for semantic classifier calibration.
 * **Implementation Details:**
 * Maps annotated problem pairs into structured training rows containing multi-dimensional feature dictionaries, using the same text preparation as live matching.
-* Attaches real Cloudflare embedding vectors when supplied. Without them, `cosine_similarity` stays `None` and training refuses to run.
-* Adds user-confirmed feedback (`user_explicit` or `user_rejected_suggestion`) from the same embedding model and feature schema.
+* Generates local MiniLM embeddings for labeled dataset pairs before calculating cosine similarity. Without vectors, `cosine_similarity` stays `None` and training refuses to run.
+* Adds user-confirmed feedback (`user_explicit` or `user_rejected_suggestion`) only when the provider, model and feature schema match the active MiniLM training run.
 * Keeps the three original labels; training maps `same_underlying` to 1 and the other two to 0.
 * Records `group_keys` (hashes of each side's text) so pairs sharing a problem stay in the same split.
 
@@ -199,7 +199,7 @@ def build_training_rows(dataset, feedback, vectors=None, max_chars=DEFAULT_MAX_C
 * **Output Layer:** 1 neuron with Sigmoid activation.
 * **Loss and optimiser:** Binary cross-entropy (log loss) minimised with Adam, through scikit-learn's `MLPClassifier`.
 * **Evaluation:** Pairs are grouped by shared problem records, then split into training, validation and test sets with `StratifiedGroupKFold`. The decision threshold is chosen on validation only, and the test set is scored once. Grouped 5-fold cross-validation is reported as a steadier estimate. The earlier 83.33% figure came from a random pair-level split with the cosine feature set to zero, so it is not used.
-* **Model Persistence:** `artifact_mlp_model.pkl` holds the network, scaler, feature order, feature schema version, threshold, scikit-learn version, embedding model and training report. A missing or mismatched file is rejected, and duplicate review continues without it.
+* **Model Persistence:** `artifact_mlp_model.pkl` holds the network, scaler, exact feature order/schema, provider/model identity, architecture, threshold, scikit-learn version and evaluation report. Old or mismatched artifacts are rejected; local-mode startup requires a compatible checkpoint.
 * **Live use:** `analyze_submission` scores every embedding candidate and returns the result as `model_assessment`. The user still makes the final choice.
 
 **Searchable References & Code Snippets:**
@@ -215,3 +215,13 @@ def model_feature_vector(features):
     # Raises MissingFeatureError instead of substituting zero.
     return [float(features[name]) for name in MODEL_FEATURES]
 ```
+
+---
+
+### Current local MiniLM runtime
+
+`ml/nlp/providers/local.py` implements the production `LocalEmbeddingProvider`. It loads `sentence-transformers/paraphrase-MiniLM-L6-v2` from `MINILM_MODEL_PATH` with `local_files_only=True` and CPU inference by default. The model is loaded once per process and its embeddings use the existing `EmbeddingCache`; cache identities contain both provider and model ID, so prior Cloudflare vectors are not reused.
+
+The four ANN inputs remain ordered as `cosine_similarity`, `title_similarity`, `keyword_overlap`, `tag_overlap`. MiniLM emits the sentence vectors; `features.py` derives cosine similarity from each vector pair. Missing, zero or non-finite embeddings are errors, not substitute scores.
+
+From `ml/`, run `./run-ai.ps1` in PowerShell. The script creates `.env` from `.env.example` if needed, installs dependencies, verifies a real local embedding, checks the ANN artifact, trains only when it is missing/incompatible, verifies the resulting artifact, and starts FastAPI. Use `./run-ai.ps1 -Retrain` to force training. Initial package installation may need internet; model inference after setup is local. SRS is separate and continues to use OpenRouter.

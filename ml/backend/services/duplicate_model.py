@@ -18,9 +18,9 @@ class DuplicateModel:
         self.message=message
 
     @classmethod
-    def load(cls,path:Path,embedding_model:str)->"DuplicateModel":
+    def load(cls,path:Path,embedding_model:str,embedding_provider:str|None=None)->"DuplicateModel":
         try:
-            return cls(DuplicateMLPClassifier.load(path,embedding_model))
+            return cls(DuplicateMLPClassifier.load(path,embedding_model,embedding_provider))
         except ModelUnavailable as error:
             logger.warning("Duplicate model not loaded: %s",error.message)
 
@@ -42,6 +42,8 @@ class DuplicateModel:
             "message":None,
             "threshold":self.classifier.threshold,
             "training_dataset_version":metadata.get("training_dataset_version"),
+            "embedding_provider":metadata.get("embedding_provider"),
+            "embedding_model":metadata.get("embedding_model"),
             "trained_at":metadata.get("trained_at")
         }
 

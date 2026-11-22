@@ -1,13 +1,14 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ML_ROOT=Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
-    model_config=SettingsConfigDict(env_file=str(ML_ROOT/".env"), env_file_encoding="utf-8", extra="ignore")
+    model_config=SettingsConfigDict(env_file=str(ML_ROOT/".env"), env_file_encoding="utf-8", extra="ignore", populate_by_name=True)
 
     cloudflare_account_id:str=""
     cloudflare_api_token:str=""
@@ -16,7 +17,8 @@ class Settings(BaseSettings):
     openrouter_api_key:str=""
     openrouter_model:str="google/gemma-4-26b-a4b-it:free"
 
-    ai_provider_mode:str="cloud"
+    ai_provider_mode:str="local"
+    minilm_model_path:Path|None=Field(default=None,validation_alias=AliasChoices("MINILM_MODEL_PATH","MODEL_PATH"))
     ai_request_timeout:float=60
     srs_request_timeout:float=150
     srs_max_output_tokens:int=6000
@@ -48,6 +50,11 @@ class Settings(BaseSettings):
     auth_secret:str=""
     auth_token_hours:float=12
     demo_account_password:str="DevBridge@2026"
+
+    @field_validator("minilm_model_path",mode="before")
+    @classmethod
+    def blank_model_path_is_unset(cls,value):
+        return None if value is None or (isinstance(value,str) and not value.strip()) else value
 
     @property
     def ai_enabled(self)->bool:

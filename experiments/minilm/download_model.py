@@ -3,7 +3,10 @@ from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
 load_dotenv()
 
-drive_path = os.getenv("MODEL_PATH")
+drive_path = os.getenv("MINILM_MODEL_PATH") or os.getenv("MODEL_PATH")
+
+if not drive_path:
+    raise RuntimeError("Set MINILM_MODEL_PATH to the destination folder before running this optional download helper.")
 
 print(f"Downloading model to: {drive_path} ...")
 

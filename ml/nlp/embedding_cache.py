@@ -1,4 +1,5 @@
 import hashlib
+import math
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,6 +9,10 @@ from .providers.base import EmbeddingProvider
 from .text import TEXT_PREP_VERSION
 
 VECTOR_DECIMALS=7
+
+
+def provider_cache_identity(provider:EmbeddingProvider)->str:
+    return getattr(provider,"cache_identity",f"{provider.name}:{provider.model_id}")
 
 
 class EmbeddingCache:
@@ -77,8 +82,17 @@ async def embed_with_cache(provider:EmbeddingProvider,cache:EmbeddingCache,texts
             vectors[text]=cached
 
     if missing:
-        fresh=dict(zip(missing,await provider.embed(missing)))
+        encoded=await provider.embed(missing)
+        if len(encoded) != len(missing):
+            raise ValueError(f"Embedding provider {provider.name} returned {len(encoded)} vectors for {len(missing)} texts.")
+        fresh=dict(zip(missing,encoded))
         cache.put_many(fresh)
         vectors.update(fresh)
+
+    for vector in vectors.values():
+        if not vector or any(not math.isfinite(float(value)) for value in vector) or not any(float(value) != 0 for value in vector):
+            raise ValueError(f"Embedding provider {provider.name} returned an empty, zero or non-finite vector.")
+    if len({len(vector) for vector in vectors.values()}) > 1:
+        raise ValueError(f"Embedding provider {provider.name} returned vectors with inconsistent dimensions.")
 
     return vectors

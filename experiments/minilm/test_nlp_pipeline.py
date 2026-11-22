@@ -37,7 +37,7 @@ def run_pipeline_test():
     env_path = CURRENT_DIR / ".env"
     load_dotenv(dotenv_path=env_path)
     
-    model_path = os.getenv("MODEL_PATH") or r"H:\My Drive\Dev_Bridge\models\paraphrase-MiniLM-L6-v2"
+    model_path = os.getenv("MINILM_MODEL_PATH") or os.getenv("MODEL_PATH")
     print(f"[3] Loading Local Deep Learning Model...")
     print(f"Model Path: {model_path}")
     
