@@ -51,7 +51,7 @@ class Settings(BaseSettings):
 
     @property
     def ai_enabled(self)->bool:
-        return self.ai_provider_mode.strip().lower() == "cloud"
+        return self.ai_provider_mode.strip().lower() in ("cloud", "local")
 
     @property
     def is_production(self)->bool:
