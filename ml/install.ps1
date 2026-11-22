@@ -37,18 +37,106 @@ function Invoke-Checked {
     }
 }
 
-if (Test-Path $python) {
-    Write-Host "Using the existing virtual environment in $venv" -ForegroundColor Gray
-} else {
-    if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-        Stop-Install "Python was not found. Install Python 3.12 or newer and try again."
+function Test-UsablePython {
+    param([string]$exePath, [string[]]$prefixArgs = @())
+
+    if ([string]::IsNullOrWhiteSpace($exePath) -or (-not (Test-Path $exePath))) {
+        return $null
     }
 
-    Write-Host "Creating a virtual environment in $venv" -ForegroundColor Cyan
-    Invoke-Checked "python" @("-m", "venv", $venv)
+    try {
+        $versionText = & $exePath @prefixArgs -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $versionText) {
+            return [PSCustomObject]@{
+                Exe        = $exePath
+                PrefixArgs = $prefixArgs
+                Version    = [version]($versionText.Trim().Split()[0])
+                RawVersion = $versionText.Trim()
+            }
+        }
+    } catch {
+        # Ignore non-working candidate
+    }
+
+    return $null
 }
 
-Invoke-Checked $python @("-m", "pip", "install", "--upgrade", "pip", "--quiet")
+function Find-LatestUsablePython {
+    $candidates = @()
+
+    $explicitPaths = @(
+        "C:\Program Files\Python315\python.exe",
+        "C:\Program Files\Python314\python.exe",
+        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python315\python.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python314\python.exe")
+    )
+
+    foreach ($p in $explicitPaths) {
+        $info = Test-UsablePython -exePath $p
+        if ($info) { $candidates += $info }
+    }
+
+    $pyCmd = Get-Command py -ErrorAction SilentlyContinue
+    if ($pyCmd) {
+        foreach ($ver in @("-3.15", "-3.14", "-3")) {
+            $info = Test-UsablePython -exePath $pyCmd.Source -prefixArgs @($ver)
+            if ($info) { $candidates += $info }
+        }
+    }
+
+    $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+    if ($pythonCmd) {
+        $info = Test-UsablePython -exePath $pythonCmd.Source
+        if ($info) { $candidates += $info }
+    }
+
+    if ($candidates.Count -eq 0) {
+        return $null
+    }
+
+    return ($candidates | Sort-Object Version -Descending | Select-Object -First 1)
+}
+
+function New-CleanVenv {
+    param($pyInfo, [string]$targetVenv)
+
+    if (Test-Path $targetVenv) {
+        Write-Host "Removing existing/broken virtual environment in $targetVenv..." -ForegroundColor Yellow
+        Remove-Item -Path $targetVenv -Recurse -Force -ErrorAction Stop
+    }
+
+    Write-Host "Creating virtual environment using Python $($pyInfo.RawVersion) in $targetVenv" -ForegroundColor Cyan
+    $venvArgs = @()
+    if ($pyInfo.PrefixArgs.Count -gt 0) {
+        $venvArgs += $pyInfo.PrefixArgs
+    }
+    $venvArgs += @("-m", "venv", $targetVenv)
+
+    Invoke-Checked $pyInfo.Exe $venvArgs
+}
+
+$selectedPython = Find-LatestUsablePython
+if (-not $selectedPython) {
+    Stop-Install "No usable Python interpreter (including 3.15 or 3.14) was found on this device."
+}
+
+if (Test-Path $python) {
+    Write-Host "Using existing virtual environment in $venv" -ForegroundColor Gray
+    & $python -c "import sys; sys.exit(0)" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Existing virtual environment is broken or points to a missing Python binary." -ForegroundColor Yellow
+        New-CleanVenv -pyInfo $selectedPython -targetVenv $venv
+    }
+} else {
+    New-CleanVenv -pyInfo $selectedPython -targetVenv $venv
+}
+
+& $python -m pip install --upgrade pip --quiet
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "pip check failed in existing venv; recreating with Python $($selectedPython.RawVersion)..." -ForegroundColor Yellow
+    New-CleanVenv -pyInfo $selectedPython -targetVenv $venv
+    Invoke-Checked $python @("-m", "pip", "install", "--upgrade", "pip", "--quiet")
+}
 
 if ($packages.Count -gt 0) {
     $action=if ($Uninstall) { "uninstall" } else { "install" }
