@@ -3,8 +3,13 @@ name: Sync Branches & Directories
 on:
   push:
     branches:
-      - '**'
+      - "**"
   workflow_dispatch:
+    inputs:
+      force_sync:
+        description: "Force-overwrite drifted ml/ directory on target branches from origin/main"
+        type: boolean
+        default: false
 
 concurrency:
   group: sync-branches-workspace
@@ -45,6 +50,7 @@ jobs:
           BRIDGE_FROM: "mob-dev"
           BRIDGE_TO: "mob-dev2"
           BRIDGE_DIR: "DevBridge"
+          FORCE_SYNC: ${{ inputs.force_sync && '1' || '0' }}
         run: |
           cp scripts/sync.sh "$RUNNER_TEMP/sync.sh"
           chmod +x "$RUNNER_TEMP/sync.sh"

@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 set -euo pipefail
 
 SRC_REF="${SRC_REF:-origin/main}"
@@ -7,6 +6,7 @@ read -ra TARGETS <<< "${TARGETS:-web-dev}"
 BRIDGE_FROM="${BRIDGE_FROM:-}"
 BRIDGE_TO="${BRIDGE_TO:-}"
 BRIDGE_DIR="${BRIDGE_DIR:-DevBridge}"
+FORCE_SYNC="${FORCE_SYNC:-0}"
 MSG_TAG="chore(sync)"
 PROTECTED_BRANCHES=(main backup)
 
@@ -26,7 +26,6 @@ require_writable() {
   done
 }
 
-# Every version of the directory that the source branch has ever published.
 is_published_tree() {
   local dir="$1" tree="$2" commit
   for commit in $(git log --format=%H "$SRC_REF" -- "$dir"); do
@@ -35,15 +34,20 @@ is_published_tree() {
   return 1
 }
 
-# Refuse to replace shared code that was edited directly on a target branch.
 require_no_drift() {
   local branch="$1" dir="$2" tree
   tree=$(git rev-parse -q --verify "origin/$branch:$dir" || true)
   [[ -z "$tree" ]] && return 0
-  is_published_tree "$dir" "$tree" || fail "$branch has its own changes in $dir/. Move them to main first."
+  if is_published_tree "$dir" "$tree"; then
+    return 0
+  fi
+  if [[ "$FORCE_SYNC" == "1" ]]; then
+    echo "Warning: FORCE_SYNC=1 set; overwriting drifted $dir/ on $branch from $SRC_REF" >&2
+    return 0
+  fi
+  fail "$branch has its own changes in $dir/. Move them to main first, or run with FORCE_SYNC=1 to overwrite."
 }
 
-# Later gitignore rules win, so a branch's own rules stay last.
 merge_gitignore() {
   {
     git show "$SRC_REF:.gitignore" 2>/dev/null || true
@@ -83,7 +87,6 @@ commit_push() {
 git fetch origin --prune
 git cat-file -e "$SRC_REF:$SYNC_DIR" 2>/dev/null || fail "$SYNC_DIR does not exist on $SRC_REF"
 
-# Check every target before anything is written.
 ACTIVE_TARGETS=()
 for target in "${TARGETS[@]}"; do
   require_writable "$target"
