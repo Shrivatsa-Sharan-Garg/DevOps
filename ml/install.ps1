@@ -14,6 +14,7 @@ $python=Join-Path $venv "Scripts\python.exe"
 $activate=Join-Path $venv "Scripts\Activate.ps1"
 $reqPath=Join-Path $PSScriptRoot "requirements.txt"
 $dotSourced=$MyInvocation.InvocationName -eq "."
+$didInstall=$false
 
 function Stop-Install {
     param([string]$message)
@@ -152,7 +153,12 @@ if ($packages.Count -gt 0) {
         Invoke-Checked $python (@("-m", "pip", $action, $package, "--quiet") + $extra)
     }
 
-    Write-Host "Package installed. Add intentional runtime dependencies to requirements.txt so fresh setups receive them." -ForegroundColor Green
+    if (-not $Uninstall) {
+        $didInstall=$true
+        Write-Host "Package installed." -ForegroundColor Green
+    } else {
+        Write-Host "Package uninstalled." -ForegroundColor Green
+    }
 
 } elseif ($Uninstall) {
     Stop-Install "Provide package names to uninstall. Example: .\install.ps1 -u <package-name>"
@@ -160,11 +166,22 @@ if ($packages.Count -gt 0) {
     if (-not (Test-Path $reqPath)) { Stop-Install "requirements.txt not found at $reqPath." }
     Write-Host "Installing dependencies from requirements.txt" -ForegroundColor Gray
     Invoke-Checked $python @("-m", "pip", "install", "-r", $reqPath, "--quiet")
+    $didInstall=$true
 
     if ($Test) {
         Write-Host "Installing pytest $PytestVersion" -ForegroundColor Gray
         Invoke-Checked $python @("-m", "pip", "install", "pytest==$PytestVersion", "--quiet")
+        $didInstall=$true
     }
+}
+
+if ($didInstall) {
+    Write-Host "Freezing installed packages to $reqPath..." -ForegroundColor Cyan
+    & $python -m pip freeze | Set-Content -Path $reqPath -Encoding ascii
+    if ($LASTEXITCODE -ne 0) {
+        Stop-Install "Failed: $python -m pip freeze > $reqPath"
+    }
+    Write-Host "requirements.txt updated." -ForegroundColor Green
 }
 
 if ($dotSourced) {
