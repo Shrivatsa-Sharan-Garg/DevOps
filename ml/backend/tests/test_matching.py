@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from nlp.embedding_cache import EmbeddingCache
+from nlp.errors import ProviderUnavailable
 from nlp.features import (
     FEATURE_SCHEMA_VERSION,
     compute_pair_features,
@@ -14,9 +15,26 @@ from nlp.features import (
     title_similarity
 )
 from nlp.matcher import SemanticMatcher, Submission
+from backend.services.duplicate_model import DuplicateModel
 from nlp.text import TEXT_PREP_VERSION, build_embedding_text, extract_keywords
 
 from .conftest import FakeEmbedder
+
+
+class MockMiniLM:
+    name="minilm"
+    model_id="sentence-transformers/paraphrase-MiniLM-L6-v2"
+    cache_identity=f"{name}:{model_id}"
+
+    def __init__(self,error=None):
+        self.error=error
+        self.calls=[]
+
+    async def embed(self,texts):
+        self.calls.append(list(texts))
+        if self.error:
+            raise self.error
+        return [[1.0,float(len(text)),2.0] for text in texts]
 
 
 def problem(index:int, title:str, description:str, allowed:bool=True)->dict:
@@ -51,7 +69,8 @@ def test_cosine_similarity_known_values():
     assert cosine_similarity(np.array([1.0, 0.0]), np.array([1.0, 0.0])) == pytest.approx(1.0)
     assert cosine_similarity(np.array([1.0, 0.0]), np.array([0.0, 1.0])) == pytest.approx(0.0)
     assert cosine_similarity(np.array([1.0, 1.0]), np.array([-1.0, -1.0])) == pytest.approx(-1.0)
-    assert cosine_similarity(np.array([0.0, 0.0]), np.array([1.0, 0.0])) == 0.0
+    with pytest.raises(ValueError,match="zero embedding"):
+        cosine_similarity(np.array([0.0, 0.0]), np.array([1.0, 0.0]))
 
 
 def test_lexical_features():
@@ -86,6 +105,45 @@ def test_one_request_embeds_the_submission_and_every_candidate(tmp_path):
 
     assert len(embedder.batches) == 1
     assert len(embedder.batches[0]) == len(POOL)+1
+
+
+def test_local_embedding_pipeline_generates_all_ordered_ann_features(tmp_path):
+    provider=MockMiniLM()
+    cache=EmbeddingCache(tmp_path/"cache.json",provider.cache_identity)
+    matcher=SemanticMatcher(provider,cache,3,0.0,0.1,200,6000)
+    outcome=asyncio.run(matcher.match(SUBMISSION,[POOL[0]],True))
+
+    assert outcome.embedding_provider == "minilm"
+    assert outcome.embedding_model == provider.model_id
+    assert len(outcome.candidates) == 1
+    features=outcome.candidates[0].features
+    assert tuple(name for name in ("cosine_similarity","title_similarity","keyword_overlap","tag_overlap") if name in features) == (
+        "cosine_similarity","title_similarity","keyword_overlap","tag_overlap"
+    )
+    assert all(isinstance(features[name],float) for name in ("cosine_similarity","title_similarity","keyword_overlap","tag_overlap"))
+    assert features["cosine_similarity"] > 0.0
+    assert provider.calls == [[matcher._text_for(SUBMISSION.title,SUBMISSION.description),matcher._text_for(POOL[0]["title"],POOL[0]["description"])]]
+
+
+def test_local_features_reach_the_existing_ann(tmp_path,trained_classifier):
+    provider=MockMiniLM()
+    cache=EmbeddingCache(tmp_path/"cache.json",provider.cache_identity)
+    matcher=SemanticMatcher(provider,cache,3,0.0,0.1,200,6000)
+    outcome=asyncio.run(matcher.match(SUBMISSION,[POOL[0]],True))
+
+    assessment=DuplicateModel(trained_classifier).assess(outcome.candidates[0])
+
+    assert assessment is not None
+    assert 0.0 <= assessment["probability"] <= 1.0
+
+
+def test_local_embedding_failure_is_not_silently_downgraded_to_keywords(tmp_path):
+    provider=MockMiniLM(ProviderUnavailable("model missing",provider="minilm"))
+    cache=EmbeddingCache(tmp_path/"cache.json",provider.cache_identity)
+    matcher=SemanticMatcher(provider,cache,3,0.0,0.1,200,6000)
+
+    with pytest.raises(ProviderUnavailable,match="model missing"):
+        asyncio.run(matcher.match(SUBMISSION,POOL,True))
 
 
 def test_returns_at_most_three_in_score_order(tmp_path):

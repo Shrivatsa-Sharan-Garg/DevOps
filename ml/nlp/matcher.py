@@ -38,6 +38,7 @@ class MatchOutcome:
     candidates:list[Candidate]
     submission_text_hash:str
     embedding_model:str|None=None
+    embedding_provider:str|None=None
     compared_count:int=0
     ai_error:AIProviderError|None=None
     config:dict[str, Any]=field(default_factory=dict)
@@ -74,6 +75,8 @@ class SemanticMatcher:
         try:
             return await self._embedding_match(submission, allowed)
         except AIProviderError as error:
+            if self.provider.name == "minilm":
+                raise
             outcome=self._keyword_match(submission, pool)
             outcome.ai_error=error
 
@@ -104,6 +107,7 @@ class SemanticMatcher:
                 candidates=[],
                 submission_text_hash=text_hash(submission_text),
                 embedding_model=self.provider.model_id,
+                embedding_provider=self.provider.name,
                 config=self._config()
             )
 
@@ -126,6 +130,7 @@ class SemanticMatcher:
             candidates=self._to_candidates(scored, METHOD_EMBEDDING),
             submission_text_hash=text_hash(submission_text),
             embedding_model=self.provider.model_id,
+            embedding_provider=self.provider.name,
             compared_count=len(pool),
             config=self._config()
         )
@@ -196,6 +201,8 @@ class SemanticMatcher:
         return {
             "feature_schema_version":FEATURE_SCHEMA_VERSION,
             "text_prep_version":TEXT_PREP_VERSION,
+            "embedding_provider":self.provider.name,
+            "embedding_model":self.provider.model_id,
             "min_similarity":self.min_similarity,
             "min_keyword_overlap":self.min_keyword_overlap,
             "top_k":self.top_k,

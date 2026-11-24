@@ -27,7 +27,7 @@ def get_ai_status(
         "mode":"cloud" if settings.ai_enabled else "disabled",
         "privacy_notice":AI_PRIVACY_NOTICE,
         "embedding":{
-            "provider":"Cloudflare Workers AI",
+            "provider":embedding_provider.name,
             "model":embedding_provider.model_id,
             "configured":embedding_provider.is_configured,
             "usage":guard.snapshot(embedding_provider.name)

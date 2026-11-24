@@ -62,8 +62,9 @@ def test_cosine_is_symmetric_and_ignores_vector_length():
     assert cosine_similarity(left*10, right) == pytest.approx(cosine_similarity(left, right))
 
 
-def test_cosine_of_a_zero_vector_is_zero_not_nan():
-    assert cosine_similarity(np.zeros(4), np.ones(4)) == 0.0
+def test_cosine_rejects_a_zero_vector_instead_of_substituting_a_score():
+    with pytest.raises(ValueError,match="zero embedding"):
+        cosine_similarity(np.zeros(4), np.ones(4))
 
 
 # Title similarity

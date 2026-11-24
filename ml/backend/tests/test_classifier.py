@@ -38,6 +38,12 @@ def test_missing_cosine_is_never_turned_into_zero():
         model_feature_vector({**COMPLETE,"cosine_similarity":None})
 
 
+@pytest.mark.parametrize("bad",[float("nan"),float("inf"),"not-a-number"])
+def test_invalid_ann_features_are_rejected(bad):
+    with pytest.raises(MissingFeatureError):
+        model_feature_vector({**COMPLETE,"cosine_similarity":bad})
+
+
 def test_dataset_rows_without_embeddings_leave_cosine_empty(dataset):
     rows=build_training_rows(dataset,[])["rows"]
 
@@ -117,6 +123,16 @@ def test_model_from_other_embeddings_is_rejected(tmp_path, trained_classifier):
     assert error.value.code == "model_incompatible"
 
 
+def test_model_from_other_embedding_provider_is_rejected(tmp_path, trained_classifier):
+    path=tmp_path/"model.pkl"
+    trained_classifier.save(path)
+
+    with pytest.raises(ModelUnavailable) as error:
+        DuplicateMLPClassifier.load(path,FakeEmbedder.model_id,"minilm")
+
+    assert error.value.code == "model_incompatible"
+
+
 def test_runtime_model_skips_keyword_candidates(trained_classifier):
     model=DuplicateModel(trained_classifier)
     candidate=Candidate(problem={},rank=1,score=0.5,method=METHOD_KEYWORD,features=COMPLETE,candidate_text_hash="x")
@@ -124,19 +140,32 @@ def test_runtime_model_skips_keyword_candidates(trained_classifier):
     assert model.assess(candidate) is None
 
 
+def test_ann_assesses_candidates_using_the_four_numeric_features(trained_classifier):
+    model=DuplicateModel(trained_classifier)
+    candidate=Candidate(
+        problem={},rank=1,score=0.83,method="embedding",features=COMPLETE,candidate_text_hash="x"
+    )
+
+    result=model.assess(candidate)
+
+    assert result["prediction"] in {"same_underlying","not_same"}
+    assert 0.0 <= result["probability"] <= 1.0
+
+
 def test_only_confirmed_embedding_feedback_is_used():
-    base={"label":"same_underlying","label_source":"user_explicit","embedding_model":"m","features":{**COMPLETE,"schema_version":"1.1.0"}}
+    base={"label":"same_underlying","label_source":"user_explicit","embedding_model":"m","embedding_provider":"minilm","features":{**COMPLETE,"schema_version":"1.1.0"}}
     records=[
         {**base,"id":"keep"},
         {**base,"id":"unlabelled","label":None},
         {**base,"id":"not-chosen","label_source":"shown_not_selected"},
         {**base,"id":"other-model","embedding_model":"other"},
+        {**base,"id":"other-provider","embedding_provider":"cloudflare"},
         {**base,"id":"keyword","features":{**base["features"],"cosine_similarity":None}}
     ]
     kept,skipped=usable_feedback(records,"m")
 
     assert [record["id"] for record in kept] == ["keep"]
-    assert sum(skipped.values()) == 4
+    assert sum(skipped.values()) == 5
 
 
 def test_training_is_repeatable():

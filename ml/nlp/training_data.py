@@ -99,6 +99,7 @@ def row_from_feedback(
         "group_keys":group_keys,
         "features": record.get("features") or {},
         "embedding_model": record.get("embedding_model"),
+        "embedding_provider": record.get("embedding_provider"),
         "match_method": record.get("match_method")
     }
 

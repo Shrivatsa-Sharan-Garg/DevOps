@@ -67,8 +67,12 @@ function Find-LatestUsablePython {
     $explicitPaths = @(
         "C:\Program Files\Python315\python.exe",
         "C:\Program Files\Python314\python.exe",
+        "C:\Program Files\Python313\python.exe",
+        "C:\Program Files\Python312\python.exe",
         (Join-Path $env:LOCALAPPDATA "Programs\Python\Python315\python.exe"),
-        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python314\python.exe")
+        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python314\python.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python313\python.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe")
     )
 
     foreach ($p in $explicitPaths) {
@@ -78,7 +82,7 @@ function Find-LatestUsablePython {
 
     $pyCmd = Get-Command py -ErrorAction SilentlyContinue
     if ($pyCmd) {
-        foreach ($ver in @("-3.15", "-3.14", "-3")) {
+        foreach ($ver in @("-3.15", "-3.14", "-3.13", "-3.12", "-3")) {
             $info = Test-UsablePython -exePath $pyCmd.Source -prefixArgs @($ver)
             if ($info) { $candidates += $info }
         }
@@ -90,6 +94,7 @@ function Find-LatestUsablePython {
         if ($info) { $candidates += $info }
     }
 
+    $candidates = @($candidates | Where-Object { $_.Version -ge [version]"3.12" })
     if ($candidates.Count -eq 0) {
         return $null
     }
@@ -101,7 +106,7 @@ function New-CleanVenv {
     param($pyInfo, [string]$targetVenv)
 
     if (Test-Path $targetVenv) {
-        Write-Host "Removing existing/broken virtual environment in $targetVenv..." -ForegroundColor Yellow
+        Write-Host "Removing unusable virtual environment at $targetVenv..." -ForegroundColor Yellow
         Remove-Item -Path $targetVenv -Recurse -Force -ErrorAction Stop
     }
 
@@ -117,7 +122,7 @@ function New-CleanVenv {
 
 $selectedPython = Find-LatestUsablePython
 if (-not $selectedPython) {
-    Stop-Install "No usable Python interpreter (including 3.15 or 3.14) was found on this device."
+    Stop-Install "No usable Python interpreter (3.12 or newer, including 3.14/3.15) was found on this device."
 }
 
 if (Test-Path $python) {
@@ -147,19 +152,14 @@ if ($packages.Count -gt 0) {
         Invoke-Checked $python (@("-m", "pip", $action, $package, "--quiet") + $extra)
     }
 
-    Write-Host "Updating requirements.txt..." -ForegroundColor Cyan
-    & $python -m pip freeze | Set-Content -Path $reqPath -Encoding ascii
-    Write-Host "requirements.txt updated successfully!" -ForegroundColor Green
+    Write-Host "Package installed. Add intentional runtime dependencies to requirements.txt so fresh setups receive them." -ForegroundColor Green
 
 } elseif ($Uninstall) {
     Stop-Install "Provide package names to uninstall. Example: .\install.ps1 -u <package-name>"
 } else {
-    if (Test-Path $reqPath) {
-        Write-Host "Installing dependencies from requirements.txt" -ForegroundColor Gray
-        Invoke-Checked $python @("-m", "pip", "install", "-r", $reqPath, "--quiet")
-    } else {
-        Write-Host "requirements.txt not found at $reqPath. Skipping." -ForegroundColor Yellow
-    }
+    if (-not (Test-Path $reqPath)) { Stop-Install "requirements.txt not found at $reqPath." }
+    Write-Host "Installing dependencies from requirements.txt" -ForegroundColor Gray
+    Invoke-Checked $python @("-m", "pip", "install", "-r", $reqPath, "--quiet")
 
     if ($Test) {
         Write-Host "Installing pytest $PytestVersion" -ForegroundColor Gray

@@ -9,10 +9,11 @@ from fastapi.responses import JSONResponse
 
 from pymongo.errors import PyMongoError
 
-from nlp.embedding_cache import EmbeddingCache
+from nlp.embedding_cache import EmbeddingCache, provider_cache_identity
 from nlp.errors import AIProviderError
 from nlp.matcher import SemanticMatcher
 from nlp.providers.cloudflare import CloudflareEmbeddingProvider
+from nlp.providers.local import LocalEmbeddingProvider
 from nlp.providers.openrouter import OpenRouterTextProvider
 from nlp.srs import SrsGenerator
 from nlp.usage_guard import UsageGuard
@@ -85,8 +86,8 @@ def register_error_handlers(app:FastAPI)->None:
 
 def build_providers(settings:Settings, guard:UsageGuard)->tuple:
     if settings.ai_provider_mode.strip().lower() == "local":
-        embedding_provider = LocalEmbeddingProvider(model_path=os.getenv("MODEL_PATH"))
-    else:
+        embedding_provider=LocalEmbeddingProvider(settings.minilm_model_path,settings.embedding_batch_size)
+    elif settings.ai_provider_mode.strip().lower() == "cloud":
         embedding_provider=CloudflareEmbeddingProvider(
             settings.cloudflare_account_id,
             settings.cloudflare_api_token,
@@ -95,6 +96,8 @@ def build_providers(settings:Settings, guard:UsageGuard)->tuple:
             settings.embedding_batch_size,
             guard
         )
+    else:
+        embedding_provider=LocalEmbeddingProvider(settings.minilm_model_path,settings.embedding_batch_size)
 
     text_provider=OpenRouterTextProvider(
         settings.openrouter_api_key,
@@ -131,9 +134,6 @@ def create_app(
     active_settings=settings or get_settings()
     active_repository=repository or build_repository(active_settings)
 
-    if active_settings.ai_provider_mode.strip().lower() == "local":
-        logger.warning("AI_PROVIDER_MODE=local is not supported. The MiniLM experiment lives in experiments/minilm. AI is off.")
-
     guard=UsageGuard(active_settings.usage_path, {
         "cloudflare":active_settings.cloudflare_daily_neuron_budget,
         "openrouter":active_settings.openrouter_daily_request_budget
@@ -141,11 +141,25 @@ def create_app(
     default_embedding, default_text=build_providers(active_settings, guard)
     active_embedding=embedding_provider or default_embedding
     active_text=text_provider or default_text
-    active_model=duplicate_model or DuplicateModel.load(active_settings.duplicate_model_path,active_embedding.model_id)
+    logger.info("Embedding provider active: %s (%s)",active_embedding.name,active_embedding.model_id)
+    active_model=duplicate_model or DuplicateModel.load(
+        active_settings.duplicate_model_path,
+        active_embedding.model_id,
+        active_embedding.name,
+    )
     srs_service=SrsService(active_repository,SrsGenerator(active_text),active_settings)
 
     @asynccontextmanager
     async def lifespan(_:FastAPI):
+        if active_settings.ai_enabled and isinstance(active_embedding,LocalEmbeddingProvider):
+            await active_embedding.warm_up()
+            if not active_model.available:
+                raise RuntimeError(
+                    "The local MiniLM provider is ready, but the duplicate ANN checkpoint is missing or incompatible. "
+                    "Run .\\run-ai.ps1 from the ml folder to train/validate it. "
+                    f"Details: {active_model.message}"
+                )
+
         await active_repository.prepare()
 
         if await active_repository.is_empty():
@@ -178,7 +192,7 @@ def create_app(
     app.state.duplicate_model=active_model
     app.state.matcher=SemanticMatcher(
         active_embedding,
-        EmbeddingCache(active_settings.embedding_cache_path, active_embedding.model_id),
+        EmbeddingCache(active_settings.embedding_cache_path, provider_cache_identity(active_embedding)),
         active_settings.match_top_k,
         active_settings.match_min_similarity,
         active_settings.match_min_keyword_overlap,

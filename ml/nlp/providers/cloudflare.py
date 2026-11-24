@@ -60,6 +60,10 @@ class CloudflareEmbeddingProvider:
         self.transport=transport
 
     @property
+    def cache_identity(self)->str:
+        return f"{self.name}:{self.model_id}"
+
+    @property
     def is_configured(self)->bool:
         return bool(self.account_id and self.api_token and self.model_id)
 

@@ -122,7 +122,7 @@ def fake_training_rows()->list[dict]:
 @pytest.fixture(scope="session")
 def trained_classifier():
     model,report=train_and_evaluate(fake_training_rows())
-    model.metadata={"embedding_model":FakeEmbedder.model_id,"report":report}
+    model.metadata={"embedding_provider":FakeEmbedder.name,"embedding_model":FakeEmbedder.model_id,"report":report}
 
     return model
 

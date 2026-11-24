@@ -1,4 +1,5 @@
 from difflib import SequenceMatcher
+import math
 from typing import Any
 
 import numpy as np
@@ -26,7 +27,13 @@ def model_feature_vector(features:dict[str,Any])->list[float]:
         if value is None:
             raise MissingFeatureError(f"The {name} feature is missing.")
 
-        vector.append(float(value))
+        try:
+            numeric=float(value)
+        except (TypeError,ValueError) as error:
+            raise MissingFeatureError(f"The {name} feature must be a finite number.") from error
+        if not math.isfinite(numeric):
+            raise MissingFeatureError(f"The {name} feature must be finite.")
+        vector.append(numeric)
 
     return vector
 
@@ -51,10 +58,18 @@ def tag_overlap(left:list[str], right:list[str])->float:
 
 
 def cosine_similarity(left:np.ndarray, right:np.ndarray)->float:
+    left=np.asarray(left,dtype=np.float64)
+    right=np.asarray(right,dtype=np.float64)
+
+    if left.ndim != 1 or right.ndim != 1 or left.shape != right.shape or left.size == 0:
+        raise ValueError("Cosine similarity requires same-sized non-empty embedding vectors.")
+    if not np.isfinite(left).all() or not np.isfinite(right).all():
+        raise ValueError("Cosine similarity requires finite embedding values.")
+
     denominator=float(np.linalg.norm(left)*np.linalg.norm(right))
 
     if denominator == 0.0:
-        return 0.0
+        raise ValueError("Cosine similarity cannot be computed from a zero embedding.")
 
     return float(np.dot(left, right)/denominator)
 

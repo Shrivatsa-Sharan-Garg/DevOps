@@ -1,3 +1,5 @@
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +11,7 @@ from sklearn.preprocessing import StandardScaler
 
 from ..features import FEATURE_SCHEMA_VERSION, MODEL_FEATURES, model_feature_vector
 
-ARTIFACT_VERSION=2
+ARTIFACT_VERSION=3
 DEFAULT_MODEL_PATH=Path(__file__).with_name("artifact_mlp_model.pkl")
 DEFAULT_THRESHOLD=0.5
 HIDDEN_NEURONS=8
@@ -17,6 +19,15 @@ MAX_ITERATIONS=2000
 
 PREDICTION_SAME="same_underlying"
 PREDICTION_NOT_SAME="not_same"
+
+ARCHITECTURE={
+    "inputs":4,
+    "hidden_layer_sizes":[HIDDEN_NEURONS],
+    "hidden_activation":"relu",
+    "output":"binary sigmoid",
+    "optimizer":"adam",
+    "objective":"binary cross-entropy"
+}
 
 
 class ModelUnavailable(Exception):
@@ -72,20 +83,39 @@ class DuplicateMLPClassifier:
         }
 
     def save(self,path:Path=DEFAULT_MODEL_PATH)->None:
+        path=Path(path)
+        path.parent.mkdir(parents=True,exist_ok=True)
         payload={
             "artifact_version":ARTIFACT_VERSION,
             "network":self.network,
             "scaler":self.scaler,
+            "architecture":ARCHITECTURE,
             "feature_names":list(MODEL_FEATURES),
             "feature_schema_version":FEATURE_SCHEMA_VERSION,
             "threshold":self.threshold,
             "sklearn_version":sklearn.__version__,
             "metadata":self.metadata
         }
-        joblib.dump(payload,path)
+        descriptor,temp_name=tempfile.mkstemp(dir=path.parent,prefix=f".{path.name}.",suffix=".tmp")
+        os.close(descriptor)
+
+        try:
+            joblib.dump(payload,temp_name)
+            with open(temp_name,"rb+") as file:
+                os.fsync(file.fileno())
+            os.replace(temp_name,path)
+        except BaseException:
+            if os.path.exists(temp_name):
+                os.unlink(temp_name)
+            raise
 
     @classmethod
-    def load(cls,path:Path=DEFAULT_MODEL_PATH,embedding_model:str|None=None)->"DuplicateMLPClassifier":
+    def load(
+        cls,
+        path:Path=DEFAULT_MODEL_PATH,
+        embedding_model:str|None=None,
+        embedding_provider:str|None=None
+    )->"DuplicateMLPClassifier":
         if not Path(path).exists():
             raise ModelUnavailable("model_missing","No trained duplicate model was found. Run the training command first.")
 
@@ -95,7 +125,10 @@ class DuplicateMLPClassifier:
             raise ModelUnavailable("model_unreadable",f"The duplicate model file could not be read: {error}") from error
 
         if not isinstance(payload,dict) or payload.get("artifact_version") != ARTIFACT_VERSION:
-            raise ModelUnavailable("model_incompatible","The duplicate model was made by an older training script. Retrain it.")
+            raise ModelUnavailable("model_incompatible","The duplicate model artifact version is outdated. Retrain it with the active embedding provider.")
+
+        if payload.get("architecture") != ARCHITECTURE:
+            raise ModelUnavailable("model_incompatible","The duplicate model architecture does not match the required 4-8-1 ANN. Retrain it.")
 
         if payload.get("feature_names") != list(MODEL_FEATURES):
             raise ModelUnavailable("model_incompatible","The duplicate model expects different input features. Retrain it.")
@@ -107,9 +140,22 @@ class DuplicateMLPClassifier:
             raise ModelUnavailable("model_incompatible","The duplicate model was saved with a different scikit-learn version. Retrain it.")
 
         metadata=payload.get("metadata") or {}
+        if metadata.get("embedding_provider") not in ("minilm","cloudflare") or not metadata.get("embedding_model"):
+            raise ModelUnavailable("model_incompatible","The duplicate model is missing its embedding provider/model metadata. Retrain it.")
+
+        if payload["scaler"].n_features_in_ != len(MODEL_FEATURES) or payload["network"].n_features_in_ != len(MODEL_FEATURES):
+            raise ModelUnavailable("model_incompatible","The duplicate model scaler or network does not accept exactly four features. Retrain it.")
+
+        if tuple(payload["network"].hidden_layer_sizes) != (HIDDEN_NEURONS,) or payload["network"].activation != "relu" or payload["network"].solver != "adam" or payload["network"].out_activation_ != "logistic":
+            raise ModelUnavailable("model_incompatible","The duplicate model does not use the required 4-8-1 ReLU/sigmoid architecture. Retrain it.")
+
         trained_with=metadata.get("embedding_model")
 
         if embedding_model is not None and trained_with != embedding_model:
             raise ModelUnavailable("model_incompatible",f"The duplicate model was trained with {trained_with} embeddings, not {embedding_model}. Retrain it.")
+
+        trained_provider=metadata.get("embedding_provider")
+        if embedding_provider is not None and trained_provider != embedding_provider:
+            raise ModelUnavailable("model_incompatible",f"The duplicate model was trained with {trained_provider}, not {embedding_provider}. Retrain it.")
 
         return cls(payload["network"],payload["scaler"],float(payload["threshold"]),metadata)
