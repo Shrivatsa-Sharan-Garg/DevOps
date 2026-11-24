@@ -27,10 +27,8 @@ VALIDATION_FOLDS=4
 CV_FOLDS=5
 THRESHOLD_CHOICES=[round(value,2) for value in np.arange(0.30,0.71,0.05)]
 
-
 class TrainingDataError(Exception):
     pass
-
 
 def feature_matrix(rows:list[dict[str,Any]])->tuple[np.ndarray,np.ndarray]:
     vectors=[]
@@ -55,7 +53,6 @@ def feature_matrix(rows:list[dict[str,Any]])->tuple[np.ndarray,np.ndarray]:
 
     return (np.array(vectors),np.array(targets))
 
-
 def group_ids(rows:list[dict[str,Any]])->np.ndarray:
     parent:dict[str,str]={}
 
@@ -78,13 +75,11 @@ def group_ids(rows:list[dict[str,Any]])->np.ndarray:
 
     return np.array([roots.setdefault(find(row["group_keys"][0]),len(roots)) for row in rows])
 
-
 def _first_fold(targets:np.ndarray,groups:np.ndarray,folds:int,seed:int)->tuple[np.ndarray,np.ndarray]:
     splitter=StratifiedGroupKFold(n_splits=folds,shuffle=True,random_state=seed)
     kept,held=next(splitter.split(np.zeros(len(targets)),targets,groups))
 
     return (kept,held)
-
 
 def split_by_group(targets:np.ndarray,groups:np.ndarray,seed:int)->dict[str,np.ndarray]:
     if len(np.unique(groups)) < TEST_FOLDS:
@@ -100,7 +95,6 @@ def split_by_group(targets:np.ndarray,groups:np.ndarray,seed:int)->dict[str,np.n
 
     return split
 
-
 def evaluate(targets:np.ndarray,predictions:np.ndarray)->dict[str,Any]:
     return {
         "count":int(len(targets)),
@@ -111,7 +105,6 @@ def evaluate(targets:np.ndarray,predictions:np.ndarray)->dict[str,Any]:
         "confusion_matrix":confusion_matrix(targets,predictions,labels=[0,1]).tolist()
     }
 
-
 def choose_threshold(targets:np.ndarray,probabilities:np.ndarray)->float:
     def score(threshold:float)->tuple[float,float]:
         accuracy=accuracy_score(targets,probabilities >= threshold)
@@ -119,7 +112,6 @@ def choose_threshold(targets:np.ndarray,probabilities:np.ndarray)->float:
         return (accuracy,-abs(threshold-DEFAULT_THRESHOLD))
 
     return max(THRESHOLD_CHOICES,key=score)
-
 
 def cross_validate(features:np.ndarray,targets:np.ndarray,groups:np.ndarray,seed:int)->dict[str,Any]:
     splitter=StratifiedGroupKFold(n_splits=CV_FOLDS,shuffle=True,random_state=seed)
@@ -140,12 +132,10 @@ def cross_validate(features:np.ndarray,targets:np.ndarray,groups:np.ndarray,seed
         "fold_accuracy_std":round(float(np.std(fold_accuracy)),4)
     }
 
-
 def _distribution(rows:list[dict[str,Any]],indexes:np.ndarray)->dict[str,int]:
     counts=Counter(rows[index]["label"] for index in indexes)
 
     return {label:counts.get(label,0) for label in LABELS}
-
 
 def train_and_evaluate(rows:list[dict[str,Any]],seed:int=DEFAULT_SEED)->tuple[DuplicateMLPClassifier,dict[str,Any]]:
     features,targets=feature_matrix(rows)
@@ -184,7 +174,6 @@ def train_and_evaluate(rows:list[dict[str,Any]],seed:int=DEFAULT_SEED)->tuple[Du
 
     return (model,report)
 
-
 def usable_feedback(
     feedback:list[dict[str,Any]],
     embedding_model:str,
@@ -216,13 +205,11 @@ def usable_feedback(
 
     return (kept,dict(skipped))
 
-
 def dataset_version(dataset:dict[str,Any],feedback:list[dict[str,Any]],embedding_model:str)->str:
     content=json.dumps(dataset.get("labelled_pairs",[]),sort_keys=True).encode("utf-8")
     digest=hashlib.sha256(content).hexdigest()[:12]
 
     return f"{dataset.get('version','unknown')}+{digest}+{embedding_model}+feedback{len(feedback)}"
-
 
 async def _load_feedback(settings)->list[dict[str,Any]]:
     from backend.repositories.factory import build_repository
@@ -234,7 +221,6 @@ async def _load_feedback(settings)->list[dict[str,Any]]:
         return await repository.list_feedback()
     finally:
         await repository.close()
-
 
 async def _embed_dataset(settings,texts:list[str])->tuple[dict[str,list[float]],str,str]:
     provider=LocalEmbeddingProvider(settings.minilm_model_path,settings.embedding_batch_size)
@@ -252,7 +238,6 @@ def _check_artifact(output:Path,embedding_model:str,embedding_provider:str)->int
 
     print(f"Compatible {embedding_provider} ANN checkpoint found at {output}")
     return 0
-
 
 async def run(arguments:argparse.Namespace)->int:
     from backend.config.settings import get_settings
@@ -323,11 +308,8 @@ async def run(arguments:argparse.Namespace)->int:
     try:
         model.save(Path(temp_artifact))
         DuplicateMLPClassifier.load(Path(temp_artifact),embedding_model,embedding_provider)
-        metadata={**model.metadata,"training_report_path":str(report_path)}
-        model.metadata=metadata
         model.save(Path(temp_artifact))
         DuplicateMLPClassifier.load(Path(temp_artifact),embedding_model,embedding_provider)
-        atomic_write_json(Path(temp_report),metadata)
         os.replace(temp_artifact,output)
         os.replace(temp_report,report_path)
     finally:

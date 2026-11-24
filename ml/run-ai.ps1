@@ -49,8 +49,8 @@ if (-not (Test-Path $python)) {
 }
 
 $versionText = & $python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
-if ($LASTEXITCODE -ne 0 -or $versionText.Trim() -notin @("3.12", "3.13")) {
-    Fail "The ml virtual environment must use CPython 3.12 or 3.13; found '$versionText'. Recreate it with a supported Python version."
+if ($LASTEXITCODE -ne 0 -or $versionText.Trim() -notin @("3.12", "3.13", "3.15")) {
+    Fail "The ml virtual environment must use CPython 3.12/3.13/3.15; found '$versionText'. Recreate it with a supported Python version."
 }
 
 $dependenciesReady = $true

@@ -1,0 +1,118 @@
+{
+  "embedding_provider": "minilm",
+  "embedding_model": "sentence-transformers/paraphrase-MiniLM-L6-v2",
+  "text_prep_version": "1",
+  "feature_names": [
+    "cosine_similarity",
+    "title_similarity",
+    "keyword_overlap",
+    "tag_overlap"
+  ],
+  "feature_schema_version": "1.1.0",
+  "architecture": {
+    "inputs": 4,
+    "hidden_layer_sizes": [8],
+    "hidden_activation": "relu",
+    "output": "binary sigmoid",
+    "optimizer": "adam",
+    "objective": "binary cross-entropy"
+  },
+  "labels": {
+    "same_underlying": 1,
+    "related_different": 0,
+    "unrelated": 0
+  },
+  "training_dataset_version": "1.0.0+a66338364a9e+sentence-transformers/paraphrase-MiniLM-L6-v2+feedback0",
+  "trained_at": "2026-11-24T08:19:28.897767+00:00",
+  "row_count": 59,
+  "feedback_rows": 0,
+  "feedback_skipped": {},
+  "threshold": 0.5,
+  "report": {
+    "architecture": {
+      "inputs": [
+        "cosine_similarity",
+        "title_similarity",
+        "keyword_overlap",
+        "tag_overlap"
+      ],
+      "hidden_layer": {
+        "neurons": 8,
+        "activation": "relu"
+      },
+      "output": "one logistic (sigmoid) unit",
+      "loss": "binary cross-entropy (log loss)",
+      "optimizer": "adam",
+      "iterations": 822,
+      "final_loss": 0.0643
+    },
+    "seed": 42,
+    "threshold": 0.5,
+    "groups": 13,
+    "split_counts": {
+      "train": 34,
+      "validation": 10,
+      "test": 15
+    },
+    "split_groups": {
+      "train": 7,
+      "validation": 3,
+      "test": 3
+    },
+    "class_distribution": {
+      "train": {
+        "same_underlying": 17,
+        "related_different": 8,
+        "unrelated": 9
+      },
+      "validation": {
+        "same_underlying": 5,
+        "related_different": 3,
+        "unrelated": 2
+      },
+      "test": {
+        "same_underlying": 9,
+        "related_different": 3,
+        "unrelated": 3
+      }
+    },
+    "validation": {
+      "count": 10,
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "confusion_matrix": [
+        [5, 0],
+        [0, 5]
+      ]
+    },
+    "test": {
+      "count": 15,
+      "accuracy": 0.9333,
+      "precision": 0.9,
+      "recall": 1.0,
+      "f1_score": 0.9474,
+      "confusion_matrix": [
+        [5, 1],
+        [0, 9]
+      ]
+    },
+    "grouped_cross_validation": {
+      "count": 59,
+      "accuracy": 0.9492,
+      "precision": 0.9667,
+      "recall": 0.9355,
+      "f1_score": 0.9508,
+      "confusion_matrix": [
+        [27, 1],
+        [2, 29]
+      ],
+      "folds": 5,
+      "threshold": 0.5,
+      "fold_accuracy": [0.9333, 1.0, 1.0, 0.8333, 1.0],
+      "fold_accuracy_mean": 0.9533,
+      "fold_accuracy_std": 0.0653
+    }
+  }
+}

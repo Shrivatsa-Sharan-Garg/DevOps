@@ -65,8 +65,12 @@ function Find-LatestUsablePython {
     $candidates = @()
 
     $explicitPaths = @(
+        "C:\Program Files\Python315\python.exe",
+        "C:\Program Files\Python314\python.exe",
         "C:\Program Files\Python313\python.exe",
         "C:\Program Files\Python312\python.exe",
+        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python315\python.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python314\python.exe"),
         (Join-Path $env:LOCALAPPDATA "Programs\Python\Python313\python.exe"),
         (Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe")
     )
@@ -78,7 +82,7 @@ function Find-LatestUsablePython {
 
     $pyCmd = Get-Command py -ErrorAction SilentlyContinue
     if ($pyCmd) {
-        foreach ($ver in @("-3.13", "-3.12", "-3")) {
+        foreach ($ver in @("-3.15", "-3.14", "-3.13", "-3.12", "-3")) {
             $info = Test-UsablePython -exePath $pyCmd.Source -prefixArgs @($ver)
             if ($info) { $candidates += $info }
         }
@@ -90,7 +94,7 @@ function Find-LatestUsablePython {
         if ($info) { $candidates += $info }
     }
 
-    $candidates = @($candidates | Where-Object { $_.Version -ge [version]"3.12" -and $_.Version -lt [version]"3.14" })
+    $candidates = @($candidates | Where-Object { $_.Version -ge [version]"3.12" })
     if ($candidates.Count -eq 0) {
         return $null
     }
@@ -102,7 +106,8 @@ function New-CleanVenv {
     param($pyInfo, [string]$targetVenv)
 
     if (Test-Path $targetVenv) {
-        Stop-Install "The existing virtual environment at $targetVenv is not usable. It was left untouched; move or remove it manually, then retry."
+        Write-Host "Removing unusable virtual environment at $targetVenv..." -ForegroundColor Yellow
+        Remove-Item -Path $targetVenv -Recurse -Force -ErrorAction Stop
     }
 
     Write-Host "Creating virtual environment using Python $($pyInfo.RawVersion) in $targetVenv" -ForegroundColor Cyan
@@ -117,7 +122,7 @@ function New-CleanVenv {
 
 $selectedPython = Find-LatestUsablePython
 if (-not $selectedPython) {
-    Stop-Install "No usable Python 3.12 or 3.13 interpreter was found on this device."
+    Stop-Install "No usable Python interpreter (3.12 or newer, including 3.14/3.15) was found on this device."
 }
 
 if (Test-Path $python) {
